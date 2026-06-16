@@ -147,6 +147,15 @@ The full dataset is 180,896 log entries spanning approximately 48 hours in Octob
 
 Three entry points consume the same pipeline output. `run_analysis.py` writes the `LogReport` to `reports/latest_report.json` and generates four Matplotlib charts in `plots/`. `run_report.py` builds an HTML email via `email_builder.py` and sends it via SMTP. `run_alert.py` builds a Slack Block Kit card via `slack_sender.py` and posts it to a webhook — but only if the current status differs from the one recorded in `state.json`.
 
+```
+sample_data/  →  hadoop_loader  →  log_parser  →  analyser  →  LogReport
+                                                                    │
+                                          ┌─────────────────────────┼─────────────────────────┐
+                                          ↓                         ↓                         ↓
+                                    run_analysis              run_report                 run_alert
+                                  (plots + JSON)            (HTML email)          (Slack + dedup)
+```
+
 ---
 
 ## 6. Detected anomalies
