@@ -6,7 +6,26 @@ The dataset is the [LogHub Hadoop corpus](https://github.com/logpai/loghub) — 
 
 ---
 
-## How it works
+## Table of contents
+
+1. [How it works](#1-how-it-works)
+2. [Dashboard](#2-dashboard)
+3. [What it detects](#3-what-it-detects)
+4. [Charts](#4-charts)
+5. [Architecture](#5-architecture)
+6. [Slack alert deduplication](#6-slack-alert-deduplication)
+7. [Spike detection logic](#7-spike-detection-logic)
+8. [Dataset](#8-dataset)
+9. [API](#9-api)
+10. [Running locally](#10-running-locally)
+11. [Configuration](#11-configuration)
+12. [CI/CD](#12-cicd)
+13. [Tech stack](#13-tech-stack)
+14. [Tests](#14-tests)
+
+---
+
+## 1. How it works
 
 **Step 1 — Reading the logs**
 
@@ -45,7 +64,7 @@ The logs come from a real university research cluster that ran Hadoop batch jobs
 
 ---
 
-## Dashboard
+## 2. Dashboard
 
 ![Error Timeline](plots/error_timeline.png)
 
@@ -53,7 +72,7 @@ The error timeline is the centrepiece — 5-minute windows plotted over the full
 
 ---
 
-## What it detects
+## 3. What it detects
 
 The pipeline detected two real anomalies from the labeled dataset:
 
@@ -66,7 +85,7 @@ Overall error rate across 48 hours: **0.3%** — making both spikes 20–35x dev
 
 ---
 
-## Charts
+## 4. Charts
 
 ### Severity Distribution
 ![Severity Distribution](plots/severity_distribution.png)
@@ -90,7 +109,7 @@ The HTML email delivered by `run_report.py` on a schedule. Contains severity bre
 
 ---
 
-## Architecture
+## 5. Architecture
 
 ```
 sample_data/           <- Real Hadoop cluster logs (180k entries, labeled failures)
@@ -123,7 +142,7 @@ hadoop_loader -> to_dataframe -> analyser -> detect_spikes
 
 ---
 
-## Slack alert deduplication
+## 6. Slack alert deduplication
 
 Without deduplication, a sustained failure at 21:40 would fire an alert every 5 minutes for as long as the incident lasted. The team would start ignoring the channel.
 
@@ -156,7 +175,7 @@ python run_alert.py --watch
 
 ---
 
-## Spike detection logic
+## 7. Spike detection logic
 
 ```python
 # For each 5-minute window with >= 10 entries:
@@ -175,7 +194,7 @@ The `min_window_entries = 10` filter eliminates sparse windows — a window with
 
 ---
 
-## Dataset
+## 8. Dataset
 
 **Source:** [LogHub — Hadoop](https://github.com/logpai/loghub) (Zenodo, CC BY 4.0)
 
@@ -202,7 +221,7 @@ The `min_window_entries = 10` filter eliminates sparse windows — a window with
 
 ---
 
-## API
+## 9. API
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -217,7 +236,7 @@ The `min_window_entries = 10` filter eliminates sparse windows — a window with
 
 ---
 
-## Running locally
+## 10. Running locally
 
 **Requirements:** Python 3.11+
 
@@ -261,7 +280,7 @@ python preview_email.py
 
 ---
 
-## Configuration
+## 11. Configuration
 
 `config.yaml.example` (copy to `config.yaml` — never commit this file):
 
@@ -288,13 +307,13 @@ export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
 
 ---
 
-## CI/CD
+## 12. CI/CD
 
 Three GitHub Actions jobs in `.github/workflows/ci.yml`:
 
 | Job | Trigger | What it does |
 |---|---|---|
-| `test` | Every push and PR | Runs `pytest tests/ -v` (22 tests) |
+| `test` | Every push and PR | Runs `pytest tests/ -v` (20 tests) |
 | `run_report` | Daily cron 08:00 UTC | Downloads dataset, runs email report + Slack alert |
 | `deploy` | Push to main | Zips app and deploys to Azure App Service via Kudu zipdeploy |
 
@@ -302,7 +321,7 @@ Required GitHub secrets: `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`, `EMAIL_
 
 ---
 
-## Tech stack
+## 13. Tech stack
 
 | Layer | Technology |
 |---|---|
@@ -320,16 +339,16 @@ Required GitHub secrets: `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`, `EMAIL_
 
 ---
 
-## Tests
+## 14. Tests
 
 ```bash
 pytest tests/ -v
 ```
 
-22 tests across three files:
+20 tests across three files:
 
-- **test_report.py** — config loading, Hadoop log parsing, DataFrame conversion, severity counts, spike detection, email building, dry-run
+- **test_report.py** — config loading, DataFrame conversion, severity counts, spike detection, email building
 - **test_api.py** — all FastAPI endpoints, plot serving, path traversal blocking
 - **test_alert.py** — Block Kit payload structure, colour coding per severity, transition text, deduplication (fires on change, silent on repeat), dry-run output
 
-No network calls in tests — `send_alert` is monkeypatched. `test_hadoop_loader` reads real `sample_data/` and skips gracefully if not present.
+No network calls in tests — `send_alert` is monkeypatched. No dependency on `sample_data/`.
