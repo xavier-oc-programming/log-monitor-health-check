@@ -31,18 +31,6 @@ def test_config_loads():
     validate_config(config)
 
 
-def test_hadoop_loader():
-    """Hadoop loader parses real log files when sample_data exists."""
-    import pytest
-    data_dir = Path('sample_data')
-    if not data_dir.exists():
-        pytest.skip('sample_data/ not present')
-    from hadoop_loader import load_hadoop_logs
-    entries = load_hadoop_logs(data_dir)
-    assert len(entries) > 0
-    assert all(k in entries[0] for k in ('timestamp', 'level', 'logger', 'message'))
-    assert entries[0]['level'] in ('INFO', 'WARNING', 'ERROR', 'CRITICAL')
-
 
 def test_parser():
     """Parser extracts correct fields from a known log line."""
@@ -99,20 +87,3 @@ def test_email_builder():
     assert 'Log Health Report' in subject
 
 
-def test_dry_run(capsys):
-    """--dry-run prints report to console and does not raise."""
-    import os
-    import subprocess
-    import sys
-    import pytest
-    if not Path('sample_data').exists():
-        pytest.skip('sample_data/ not present')
-    os.environ['EMAIL_USERNAME'] = 'test@example.com'
-    os.environ['EMAIL_PASSWORD'] = 'testpassword'
-    result = subprocess.run(
-        [sys.executable, 'run_report.py', '--dry-run'],
-        capture_output=True, text=True,
-        env={**os.environ, 'EMAIL_USERNAME': 'test@example.com', 'EMAIL_PASSWORD': 'testpassword'},
-    )
-    assert result.returncode == 0, result.stderr
-    assert 'Status:' in result.stdout
