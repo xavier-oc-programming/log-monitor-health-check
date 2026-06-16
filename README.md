@@ -1,216 +1,132 @@
 # Log Monitor — Health Check & Anomaly Detection
 
-A Python pipeline that ingests real Hadoop cluster logs, detects error spikes using statistical thresholding, and delivers results through three channels: a FastAPI dashboard with live charts, a scheduled HTML email report, and a Slack alert system with deduplication.
+A Python pipeline that ingests 180,896 real Hadoop cluster log entries, detects error spikes using rate-based statistical thresholding, and delivers results through three channels: a FastAPI dashboard with live charts, a scheduled HTML email report, and a Slack alerting system with state-machine deduplication. The dataset is the [LogHub Hadoop corpus](https://github.com/logpai/loghub) — YARN container logs from WordCount and PageRank batch jobs with deliberately injected failures, published under CC BY 4.0. The non-obvious part is the deduplication layer: a sustained 30-minute incident fires one Slack alert, not six.
 
-The dataset is the [LogHub Hadoop corpus](https://github.com/logpai/loghub) — 180,896 real log entries from a YARN cluster running WordCount and PageRank jobs, with labeled failure scenarios including machine down, network disconnection, and disk full events.
+[API docs](http://localhost:8000/docs) · [Live dashboard](http://localhost:8000)
+
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688)
+![pandas](https://img.shields.io/badge/pandas-2.0-purple)
+![Tests](https://img.shields.io/badge/tests-20%20passing-brightgreen)
+![GitHub Actions](https://img.shields.io/badge/CI-GitHub%20Actions-black)
+![Azure](https://img.shields.io/badge/Deploy-Azure%20App%20Service-0078D4)
 
 ---
 
 ## Table of contents
 
-1. [How it works](#1-how-it-works)
-2. [Dashboard](#2-dashboard)
-3. [What it detects](#3-what-it-detects)
-4. [Charts](#4-charts)
-5. [Architecture](#5-architecture)
-6. [Slack alert deduplication](#6-slack-alert-deduplication)
-7. [Spike detection logic](#7-spike-detection-logic)
-8. [Dataset](#8-dataset)
-9. [API](#9-api)
-10. [Running locally](#10-running-locally)
-11. [Configuration](#11-configuration)
-12. [CI/CD](#12-cicd)
-13. [Tech stack](#13-tech-stack)
-14. [Tests](#14-tests)
+0. [Prerequisites](#0-prerequisites)
+1. [Quick start](#1-quick-start)
+2. [Project structure](#2-project-structure)
+3. [Core concepts](#3-core-concepts)
+4. [Dataset](#4-dataset)
+5. [Pipeline](#5-pipeline)
+6. [Detected anomalies](#6-detected-anomalies)
+7. [Slack alert deduplication](#7-slack-alert-deduplication)
+8. [API](#8-api)
+9. [All run modes](#9-all-run-modes)
+10. [Deployment](#10-deployment)
+11. [CI/CD](#11-cicd)
+12. [Design decisions](#12-design-decisions)
+13. [Dependencies](#13-dependencies)
 
 ---
 
-## 1. How it works
+## 0. Prerequisites
 
-**Step 1 — Reading the logs**
-
-`hadoop_loader.py` opens every log file in `sample_data/` and reads them line by line. Each line looks like:
-
-```
-2015-10-18 21:40:23  ERROR  Server: Could not contact ResourceManager
-```
-
-It pulls out four things from each line: the time, the severity level (INFO / WARNING / ERROR / FATAL), which part of the system wrote it, and the message. It collects all of this into a list — 180,896 lines total.
-
-**Step 2 — Organising into a table**
-
-`log_parser.py` turns that list into a pandas DataFrame. It adds two extra columns:
-
-- **hour** — what hour of the day this happened (0–23), used for the hourly activity chart
-- **minute_window** — the timestamp rounded down to the nearest 5 minutes. So 21:43 and 21:47 both become 21:40. This is how nearby events get grouped together for spike detection.
-
-**Step 3 — Spotting the problem**
-
-`analyser.py` looks at each 5-minute group and asks: out of all the log lines in this window, what percentage were errors?
-
-Normally that's around 0.3%. But at 21:40 it's 11% — 35 times higher than baseline. That's a spike. Any window above 5% is flagged. Above 10% is critical.
-
-**Step 4 — Three ways to tell someone**
-
-Once the spikes are found, the project delivers that information three ways:
-
-- **Email** (`run_report.py`) — builds an HTML email with a table of results and sends it to your inbox via Gmail. Like a morning newspaper for your server.
-- **Dashboard** (`main.py`) — starts a web server. Open a browser at `localhost:8000` and see the charts live. The error timeline shows every 5-minute window as a bar — grey if normal, red if it spiked.
-- **Slack** (`run_alert.py`) — posts a message to a Slack channel, but only when the status actually changes. It writes the current status (HEALTHY / WARNING / CRITICAL) to `state.json` after every check, reads it back next time, and stays silent if nothing changed. A 30-minute incident fires one alert, not six.
-
-**The real data**
-
-The logs come from a real university research cluster that ran Hadoop batch jobs. The researchers deliberately broke the cluster in different ways — turned off machines, filled up disks, cut the network — and saved the logs with labels. The errors in this project are real errors from real failures.
+- Python 3.11+
+- Gmail account with [App Password](https://myaccount.google.com/apppasswords) enabled — 2FA must be active on the account (required for email reports only)
+- Slack incoming webhook URL (optional — only needed for Slack alerts)
+- Azure CLI (optional — only needed for cloud deployment)
+- No third-party API keys required for basic local use
 
 ---
 
-## 2. Dashboard
+## 1. Quick start
 
-![Error Timeline](plots/error_timeline.png)
-
-The error timeline is the centrepiece — 5-minute windows plotted over the full log range. Grey bars are normal activity. Red bars are windows where the error rate crossed the 5% threshold. The two genuine failure events are immediately visible.
-
----
-
-## 3. What it detects
-
-The pipeline detected two real anomalies from the labeled dataset:
-
-| Time | Errors | Total entries | Error rate | Severity | Failure type |
-|---|---|---|---|---|---|
-| 2015-10-18 18:05 | 253 | 3,899 | 6% | WARNING | Disk full |
-| 2015-10-18 21:40 | 149 | 1,338 | 11% | CRITICAL | Machine down |
-
-Overall error rate across 48 hours: **0.3%** — making both spikes 20–35x deviations from baseline.
-
----
-
-## 4. Charts
-
-### Severity Distribution
-![Severity Distribution](plots/severity_distribution.png)
-
-Breakdown of all 180,896 entries by log level. INFO dominates at 93.4%, which is expected for a healthy cluster — the 0.3% overall error rate confirms that errors are genuinely rare outside the failure windows.
-
-### Hourly Activity
-![Hourly Activity](plots/hourly_activity.png)
-
-Log volume by hour of day, stacked by severity. The spike hours (18:00 and 21:00) show elevated WARNING and ERROR volumes compared to surrounding baseline hours.
-
-### Top Errors
-![Top Errors](plots/top_errors.png)
-
-Most frequent error message prefixes. `ERROR IN CONTACTING RM` (ResourceManager) accounts for 480 occurrences — 89% of all errors — which is the signature of the machine-down failure scenario where YARN containers lose contact with the cluster manager.
-
-### Email Report
-![Email Report](plots/email_preview.png)
-
-The HTML email delivered by `run_report.py` on a schedule. Contains severity breakdown, top errors table, anomaly spike summary with severity badges, and plain-English recommendations. Renders correctly in Gmail, Outlook, and Apple Mail.
-
----
-
-## 5. Architecture
-
-```
-sample_data/           <- Real Hadoop cluster logs (180k entries, labeled failures)
-    application_*/
-        container_*.log
-
-hadoop_loader.py       <- Parses Hadoop log format, maps WARN->WARNING / FATAL->CRITICAL
-log_parser.py          <- to_dataframe(): adds hour, minute_window, is_error columns
-analyser.py            <- count_by_severity(), detect_spikes(), generate_summary()
-visualise.py           <- Four Matplotlib charts -> plots/*.png
-email_builder.py       <- Self-contained HTML email with inline CSS
-slack_sender.py        <- Slack Block Kit card builder + webhook POST
-
-run_analysis.py        <- CLI: load -> parse -> analyse -> plot -> save JSON report
-run_report.py          <- CLI: load -> analyse -> email (scheduled via GitHub Actions)
-run_alert.py           <- CLI: load -> analyse -> Slack alert with deduplication
-main.py                <- FastAPI app: serves dashboard + JSON API + plots
-```
-
-Three delivery paths from the same pipeline:
-
-```
-hadoop_loader -> to_dataframe -> analyser -> detect_spikes
-                                                   |
-               ┌───────────────────────────────────┼────────────────────────┐
-               |                                   |                        |
-         run_report.py                      run_analysis.py           run_alert.py
-         (HTML email)                       (dashboard data)          (Slack + dedup)
-```
-
----
-
-## 6. Slack alert deduplication
-
-Without deduplication, a sustained failure at 21:40 would fire an alert every 5 minutes for as long as the incident lasted. The team would start ignoring the channel.
-
-`state.json` solves this. After every check the script writes the current status to disk. Before firing it reads the previous status and compares. An alert fires **only when the status changes**:
-
-```
-HEALTHY  -> WARNING   fires  "Error rate elevated"
-WARNING  -> CRITICAL  fires  "Escalating"
-CRITICAL -> HEALTHY   fires  "System recovered"
-WARNING  -> WARNING   silent
-CRITICAL -> CRITICAL  silent
-```
-
-The Slack message is a Block Kit card with a coloured sidebar (green / amber / red), fields showing the worst window, error rate vs threshold, top error, and entry count, followed by a plain-English recommendation.
-
-**Dry run — preview the payload without posting:**
 ```bash
-python run_alert.py --dry-run
+git clone https://github.com/xavier-oc-programming/log-monitor-health-check
+cd log-monitor-health-check
+pip install -r requirements.txt
+curl -L -o Hadoop.zip "https://zenodo.org/records/8196385/files/Hadoop.zip?download=1"
+mkdir sample_data && unzip Hadoop.zip -d sample_data && rm Hadoop.zip
+cp config.yaml.example config.yaml
+python run_analysis.py
+uvicorn main:app --reload
 ```
 
-**Single check (CI / cron mode):**
-```bash
-python run_alert.py
-```
+Open http://localhost:8000
 
-**Daemon mode — runs every 5 minutes until killed:**
-```bash
-python run_alert.py --watch
+---
+
+## 2. Project structure
+
+```
+log-monitor-health-check/
+├── sample_data/           ← Real Hadoop cluster logs (180k entries, labeled failures)
+│   └── application_*/
+│       └── container_*.log
+│
+├── hadoop_loader.py       ← Parses Hadoop log format; maps WARN→WARNING / FATAL→CRITICAL
+├── log_parser.py          ← Converts entry list to DataFrame; adds hour, minute_window, is_error columns
+├── analyser.py            ← Spike detection, severity counts, top-error grouping, LogReport assembly
+├── visualise.py           ← Four Matplotlib charts written to plots/*.png
+├── email_builder.py       ← Self-contained HTML email with inline CSS; no external template engine
+├── email_sender.py        ← SMTP delivery via Gmail STARTTLS (port 587)
+├── slack_sender.py        ← Slack Block Kit card builder + webhook POST using stdlib urllib only
+├── config_loader.py       ← Loads config.yaml; merges SMTP credentials from environment variables
+│
+├── run_analysis.py        ← CLI: full pipeline → plots → reports/latest_report.json
+├── run_report.py          ← CLI: pipeline → HTML email (scheduled daily via GitHub Actions)
+├── run_alert.py           ← CLI: pipeline → Slack alert with state-machine deduplication
+├── preview_email.py       ← Opens the HTML report in a local browser for visual inspection
+├── main.py                ← FastAPI app: dashboard, JSON API endpoints, chart serving
+│
+├── config.yaml.example    ← Template config — copy to config.yaml, never commit config.yaml
+├── .env.example           ← Template for environment variable exports
+├── Dockerfile             ← Builds image, runs analysis at build time, serves via gunicorn
+├── requirements.txt       ← Python dependencies
+├── conftest.py            ← pytest fixtures shared across test files
+├── tests/
+│   ├── test_report.py     ← Config loading, DataFrame parsing, severity counts, email building
+│   ├── test_api.py        ← FastAPI endpoints, plot serving, path traversal blocking
+│   └── test_alert.py      ← Block Kit payload structure, deduplication logic, dry-run output
+├── templates/
+│   └── index.html         ← Jinja2 template for the FastAPI dashboard
+├── plots/                 ← Generated chart images served by the dashboard
+└── reports/
+    └── latest_report.json ← Pre-computed report loaded at startup to avoid cold-start delay
 ```
 
 ---
 
-## 7. Spike detection logic
+## 3. Core concepts
 
-```python
-# For each 5-minute window with >= 10 entries:
-error_rate = error_count / total_entries
+**Error rate versus raw count.** Anomaly detection works on the ratio of errors to total entries within each 5-minute window, not on the absolute number of errors. A window with 149 errors in 1,338 entries (11.1%) is orders of magnitude more alarming than 149 errors spread across 180,896 entries (0.08%), even though the raw count is identical. Rate-based detection is scale-invariant: it produces meaningful results whether the cluster logs 10 lines per minute or 10,000. Most production monitoring systems — Datadog, Grafana Mimir, Prometheus — use rate metrics for exactly this reason.
 
-if error_rate > 0.05:        # above 5% -> spike
-    if error_rate >= 0.10:   # above 10% -> critical
-        severity = 'critical'
-    else:
-        severity = 'warning'
-```
+**5-minute window aggregation.** Individual log entries cannot be analysed one-by-one: a single ERROR out of a single entry produces a 100% error rate, which is meaningless. Grouping entries into 5-minute buckets gives each window enough volume for a statistically meaningful ratio while remaining fine-grained enough to localise a failure to a specific incident. The `minute_window` column stores each entry's timestamp rounded down to the nearest 5-minute boundary, so that all entries in the same window share the same key and can be grouped with a single `groupby` call.
 
-Thresholding on **rate** rather than raw count makes detection scale-invariant: 149 errors in 1,338 entries (11%) is far more alarming than 149 errors spread across 180,896 entries (0.08%).
+**Minimum window size filter.** Even with 5-minute buckets, windows near the edges of the dataset contain very few entries — as few as one or two — because log volume drops off at the boundaries of job runs. A window with 2 entries and 1 error is technically a 50% error rate but carries no more information than a coin flip. The `min_window_entries` parameter (default: 10) discards any window below that count before thresholding. This is the lightweight equivalent of applying a minimum sample size requirement before drawing a statistical conclusion.
 
-The `min_window_entries = 10` filter eliminates sparse windows — a window with 1 entry and 1 error produces a 100% error rate but carries no statistical weight.
+**Alert deduplication via a state file.** Without deduplication, a sustained failure triggers a new Slack alert every time the check runs — six nearly-identical messages over a 30-minute incident. The state machine in `run_alert.py` solves this by writing the current status (HEALTHY, WARNING, or CRITICAL) to `state.json` after every check, and reading it back before the next one. A notification fires only on status transitions: HEALTHY→CRITICAL on incident onset, CRITICAL→HEALTHY on recovery. If nothing changes, the check runs silently. The state file persists between process restarts, so a daemon that crashes and restarts mid-incident does not fire a duplicate onset alert.
+
+**SMTP delivery via STARTTLS.** The email sender connects to Gmail on port 587 — not port 25, which is blocked by most ISPs and cloud providers, and not port 465 (SMTPS), which uses implicit TLS and is less widely supported. STARTTLS upgrades a plain TCP connection to an encrypted one after the initial handshake: the client connects in cleartext, sends `EHLO`, the server advertises `STARTTLS`, and both sides switch to TLS before any credentials are transmitted. Gmail requires an App Password — a 16-character token generated per application — rather than the account password, because OAuth is not available over SMTP for standalone scripts.
+
+**Regex parsing versus structured logging.** The Hadoop log format is unstructured text — timestamp, level, thread, component, and message are positional fields separated by whitespace and brackets rather than JSON keys. A single compiled regex extracts all five fields from each line in one pass. This is appropriate for the LogHub corpus, which is a fixed historical dataset with a consistent format. In a production system generating new logs, the right answer is structured logging (JSON lines) from the start: it eliminates the parser entirely and handles variable-format messages without regex edge cases. The regex here is a deliberate fit to the dataset, not a general recommendation.
 
 ---
 
-## 8. Dataset
+## 4. Dataset
 
-**Source:** [LogHub — Hadoop](https://github.com/logpai/loghub) (Zenodo, CC BY 4.0)
+The log data comes from the [LogHub Hadoop corpus](https://github.com/logpai/loghub), hosted on Zenodo under a CC BY 4.0 license. The corpus contains YARN container logs from a multi-node university research cluster that ran Hadoop MapReduce batch jobs — WordCount and PageRank — under both normal and fault-injected conditions. The researchers deliberately induced three categories of failure: machine down (nodes become unreachable mid-job), network disconnection (inter-node communication drops), and disk full (output directory writes fail). Each failure scenario is labeled, making the corpus useful for validating that a detection system correctly identifies known-bad windows rather than firing on noise.
 
-**Contents:** YARN container logs from WordCount and PageRank jobs run on a multi-node cluster. Both normal runs and runs with injected failures are included.
+The full dataset is 180,896 log entries spanning approximately 48 hours in October 2015. Each line follows Java logging conventions:
 
-**Labeled failure types:**
-- Machine down — nodes become unreachable mid-job
-- Network disconnection — inter-node communication fails
-- Disk full — output directory writes fail
-
-**Log format:**
 ```
-2015-10-18 21:40:23,154 ERROR [IPC Server handler 5] org.apache.hadoop.ipc.Server: IPC Server handler 5 on 8020 ...
+2015-10-18 21:40:23,154 ERROR [IPC Server handler 5] org.apache.hadoop.ipc.Server: IPC Server handler 5 on 8020 caught an exception
 ```
 
-`hadoop_loader.py` maps Java log levels to standard severity names:
+`hadoop_loader.py` reads every `*.log` file in `sample_data/`, applies a compiled regex to extract timestamp, level, thread, component, and message, then sorts the result by timestamp. Java log levels are mapped to standard severity names before the entries enter the analysis pipeline:
 
 | Hadoop | Internal |
 |---|---|
@@ -221,134 +137,211 @@ The `min_window_entries = 10` filter eliminates sparse windows — a window with
 
 ---
 
-## 9. API
+## 5. Pipeline
+
+`hadoop_loader.py` opens every `.log` file in `sample_data/` and applies a compiled regex to each line. Lines that do not match the Hadoop format — blank lines, continuation lines from multi-line stack traces — are silently discarded. The result is a flat list of dicts, each containing `timestamp`, `level`, `logger`, `message`, and `raw`. All 180,896 entries are loaded into memory at once; at typical Python object sizes this approaches 150 MB, which is acceptable for a batch analysis script but worth noting for significantly larger corpora.
+
+`log_parser.py` converts that list into a pandas DataFrame and adds three derived columns. `hour` is the integer hour of each entry's timestamp (0–23), used for the hourly activity chart. `minute_window` is the timestamp truncated to the nearest 5-minute boundary — 21:43:07 and 21:47:52 both become 21:40:00 — which is the grouping key for spike detection. `is_error` is a boolean flag marking entries at ERROR or CRITICAL level, which reduces the spike aggregation to a simple `.sum()` rather than a conditional count.
+
+`analyser.py` performs three independent analyses on the DataFrame. `count_by_severity` produces overall counts and rates. `top_errors` groups error messages by their first 60 characters — a prefix truncation that collapses messages whose variable parts (hostnames, port numbers, exception text) make each occurrence look unique while sharing the same root cause; this is the lightweight equivalent of what tools like Datadog do with ML clustering. `detect_spikes` groups by `minute_window`, computes `error_count / total_entries` for each window, and returns every window above the 5% threshold that also meets the minimum entry count. The three results are assembled into a `LogReport` instance by `generate_summary`.
+
+Three entry points consume the same pipeline output. `run_analysis.py` writes the `LogReport` to `reports/latest_report.json` and generates four Matplotlib charts in `plots/`. `run_report.py` builds an HTML email via `email_builder.py` and sends it via SMTP. `run_alert.py` builds a Slack Block Kit card via `slack_sender.py` and posts it to a webhook — but only if the current status differs from the one recorded in `state.json`.
+
+---
+
+## 6. Detected anomalies
+
+The pipeline detected two real anomalies from the labeled LogHub dataset. Both correspond to known injected failure scenarios:
+
+| Time | Errors | Total entries | Error rate | Severity | Failure type |
+|---|---|---|---|---|---|
+| 2015-10-18 18:05 | 253 | 3,899 | 6.5% | WARNING | Disk full |
+| 2015-10-18 21:40 | 149 | 1,338 | 11.1% | CRITICAL | Machine down |
+
+The baseline error rate across all 180,896 entries is 0.3%. The machine-down spike is 37× above baseline; the disk-full spike is 22× above baseline. Both would be invisible to a threshold set on raw count rather than rate.
+
+**Error timeline** — 5-minute windows plotted as bars over the full 48-hour range. Grey bars are normal activity; red bars are windows above the 5% threshold. The two failure events are immediately visible as isolated peaks against the baseline.
+
+![Error Timeline](plots/error_timeline.png)
+
+**Severity distribution** — breakdown of all 180,896 entries by log level. INFO accounts for 93.4%, which is expected for a cluster running normally most of the time. ERROR is 0.3% — low enough that the spike windows stand out unambiguously against baseline noise.
+
+![Severity Distribution](plots/severity_distribution.png)
+
+**Hourly activity** — log volume by hour of day, stacked by severity. The 18:00 and 21:00 hours show elevated ERROR and WARNING volumes compared to adjacent baseline hours, consistent with the labeled failure scenarios.
+
+![Hourly Activity](plots/hourly_activity.png)
+
+**Top errors** — most frequent error message prefixes. `ERROR IN CONTACTING RM` (ResourceManager) accounts for 480 occurrences — 89% of all errors — which is the signature of the machine-down scenario, where YARN containers lose contact with the cluster manager after a node becomes unreachable.
+
+![Top Errors](plots/top_errors.png)
+
+**HTML email report** — the report delivered daily by `run_report.py`. Contains severity breakdown, top error table, anomaly spike summary with severity badges, and plain-English recommendations. Renders correctly in Gmail, Outlook, and Apple Mail.
+
+![Email Report](plots/email_preview.png)
+
+---
+
+## 7. Slack alert deduplication
+
+`run_alert.py` implements a minimal state machine using a local JSON file. After each check it writes the current status to `state.json` and reads back the previous one before deciding whether to fire. An alert fires only on status transitions:
+
+```
+HEALTHY  → WARNING   "Error rate elevated — anomaly spike detected"
+WARNING  → CRITICAL  "Escalating — error rate crossed critical threshold"
+CRITICAL → HEALTHY   "System recovered — no anomaly spikes detected"
+WARNING  → WARNING   silent
+CRITICAL → CRITICAL  silent
+```
+
+The Slack message is a Block Kit attachment card with a coloured sidebar — green for HEALTHY, amber for WARNING, red for CRITICAL — containing fields for the worst window, error rate versus threshold, top error message, and entry count, followed by a plain-English recommendation drawn from `generate_summary`.
+
+```bash
+python run_alert.py --dry-run    # print the JSON payload without posting
+python run_alert.py              # single check (CI / cron mode)
+python run_alert.py --watch      # daemon mode — runs every 5 minutes until killed
+```
+
+---
+
+## 8. API
 
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/` | Dashboard HTML |
-| GET | `/health` | Service health check |
+| GET | `/health` | Service health — includes `log_file_exists` flag |
 | GET | `/api/report` | Full analysis report as JSON |
 | GET | `/api/severity-counts` | Entry counts by level |
 | GET | `/api/top-errors` | Top error message prefixes |
 | GET | `/api/spikes` | Detected anomaly spikes |
-| POST | `/api/analyse` | Re-run full analysis pipeline |
+| POST | `/api/analyse` | Re-run the full analysis pipeline |
 | GET | `/plots/{filename}` | Serve a chart image |
+
+Interactive docs are available at `/docs` (Swagger UI) and `/redoc` when the server is running.
 
 ---
 
-## 10. Running locally
+## 9. All run modes
 
-**Requirements:** Python 3.11+
-
+**Dashboard (FastAPI):**
 ```bash
-# 1. Clone and install
-git clone https://github.com/xavier-oc-programming/log-monitor-health-check
-cd log-monitor-health-check
-pip install -r requirements.txt
-
-# 2. Download the dataset (~48MB)
-curl -L -o Hadoop.zip "https://zenodo.org/records/8196385/files/Hadoop.zip?download=1"
-mkdir sample_data && unzip Hadoop.zip -d sample_data && rm Hadoop.zip
-
-# 3. Copy config
-cp config.yaml.example config.yaml
-
-# 4. Run the analysis pipeline (generates plots and report)
-python run_analysis.py
-
-# 5. Start the dashboard
 uvicorn main:app --reload
-# -> http://localhost:8000
+# http://localhost:8000
+# http://localhost:8000/docs
 ```
 
-**Email report (dry run — no SMTP needed):**
+**Email report:**
 ```bash
 export EMAIL_USERNAME=you@gmail.com
 export EMAIL_PASSWORD=your-app-password
-python run_report.py --dry-run
+export EMAIL_TO=recipient@example.com
+export EMAIL_FROM="Log Monitor <you@gmail.com>"
+python run_report.py              # send email
+python run_report.py --dry-run    # build HTML without sending
 ```
 
-**Slack alert (dry run — no webhook needed):**
+**Slack alert:**
 ```bash
-python run_alert.py --dry-run
+export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
+python run_alert.py              # single check
+python run_alert.py --dry-run    # print payload without posting
+python run_alert.py --watch      # daemon, checks every 5 minutes
 ```
 
-**Preview the email HTML in your browser:**
+**Email preview in browser:**
 ```bash
 python preview_email.py
 ```
 
 ---
 
-## 11. Configuration
+## 10. Deployment
 
-`config.yaml.example` (copy to `config.yaml` — never commit this file):
+**Provision Azure resources:**
+```bash
+az group create --name log-monitor-rg --location westeurope
 
-```yaml
-slack:
-  webhook_url: ""   # set via SLACK_WEBHOOK_URL environment variable
+az appservice plan create \
+  --name log-monitor-plan \
+  --resource-group log-monitor-rg \
+  --sku B1 --is-linux
 
-analysis:
-  error_rate_threshold: 0.05   # windows above this are flagged as spikes
-  spike_window_minutes: 5      # aggregation window size in minutes
-  min_window_entries: 10       # ignore windows with fewer entries than this
-  top_errors_n: 10             # number of top errors to surface
+az webapp create \
+  --name log-monitor-app \
+  --resource-group log-monitor-rg \
+  --plan log-monitor-plan \
+  --runtime "PYTHON:3.11"
 ```
 
-All credentials come from environment variables — never from the config file:
-
+**Manual deploy (zipdeploy):**
 ```bash
-export EMAIL_USERNAME=your@gmail.com
-export EMAIL_PASSWORD=your-app-password
-export EMAIL_TO=recipient@example.com
-export EMAIL_FROM="Log Monitor <your@gmail.com>"
-export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
+zip -rq deploy.zip \
+  main.py run_analysis.py run_report.py run_alert.py preview_email.py \
+  hadoop_loader.py log_parser.py analyser.py \
+  visualise.py email_builder.py email_sender.py slack_sender.py \
+  config_loader.py conftest.py \
+  requirements.txt templates/ plots/ reports/
+
+TOKEN=$(az account get-access-token --query accessToken -o tsv)
+curl -X POST \
+  "https://log-monitor-app.scm.azurewebsites.net/api/zipdeploy" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/zip" \
+  --data-binary @deploy.zip
+```
+
+Scale down to F1 (free tier) via the Azure portal after the initial deploy if running costs need to be minimised. The `deploy` GitHub Actions job repeats the zipdeploy step automatically on every push to `main`.
+
+---
+
+## 11. CI/CD
+
+Three GitHub Actions jobs run from `.github/workflows/ci.yml`. The `test` job runs on every push and pull request: it installs dependencies, copies `config.yaml.example` to `config.yaml` (the committed file has blank credential fields; `config.yaml` itself is gitignored), and runs `pytest tests/ -v` against 20 tests with `EMAIL_USERNAME` and `EMAIL_PASSWORD` set to dummy values via the job environment. The `deploy` job runs only on pushes to `main` — not on pull requests — and zips the application files before posting them to Azure App Service via the Kudu zipdeploy API. The `run_report` job runs on the daily 08:00 UTC cron: it downloads the Hadoop dataset from Zenodo (~48 MB), runs the full analysis, sends the HTML email, and posts a Slack alert check against the recorded state.
+
+One-time setup — run these once from the repo root after cloning:
+```bash
+gh secret set EMAIL_USERNAME
+gh secret set EMAIL_PASSWORD
+gh secret set EMAIL_TO
+gh secret set EMAIL_FROM
+gh secret set SLACK_WEBHOOK_URL
+
+# Azure deployment only:
+az ad sp create-for-rbac \
+  --name log-monitor-cicd \
+  --role contributor \
+  --scopes /subscriptions/{subscription-id}/resourceGroups/log-monitor-rg \
+  --sdk-auth \
+  | gh secret set AZURE_CREDENTIALS
+gh secret set AZURE_APP_NAME   # value: log-monitor-app
 ```
 
 ---
 
-## 12. CI/CD
+## 12. Design decisions
 
-Three GitHub Actions jobs in `.github/workflows/ci.yml`:
+`LogReport` is implemented as a plain class with an explicit constructor rather than a dictionary or a `@dataclass`. A dictionary would pass through the pipeline without any type contract — callers would have no way to know which keys are guaranteed to exist without reading `generate_summary` in full. A `@dataclass` would be clean but adds implicit machinery (auto-generated `__init__`, `__eq__`, `__repr__`) that is not needed here and whose behaviour can surprise readers unfamiliar with the decorator. The plain class makes the contract explicit at the definition site, keeps `to_dict()` as a single deliberate serialisation step for FastAPI, and produces a useful `__repr__` for debugging — without any magic.
 
-| Job | Trigger | What it does |
+Rate-based spike detection is the appropriate choice for a corpus where volume varies dramatically across time. The Hadoop logs range from a handful of entries per 5-minute window during idle periods to thousands during active job execution. A raw-count threshold that fires during a busy window would be completely silent during a quiet one, making the alert meaningless for a cluster that changes load. Thresholding on `error_count / total_entries` produces consistent sensitivity regardless of whether a window contains 20 entries or 2,000. The 5% threshold and 10% critical boundary were calibrated against the actual data distribution: the baseline error rate is 0.3%, so 5% represents a 17× deviation from baseline — large enough to exclude noise, small enough to catch the 6.5% disk-full window.
+
+The state machine uses a local JSON file rather than a database or an in-memory variable. An in-memory variable works only if the process is long-running; a cron job or GitHub Actions step restarts the process on every execution, losing all in-memory state between runs. A database is correct in principle but introduces a dependency that would need to be provisioned, connected, and maintained — disproportionate to the problem of storing a single status string and a timestamp. A JSON file on the filesystem is self-contained, human-readable, easy to reset by deletion, and survives process restarts. The trade-off is that it does not work across multiple instances, which is acceptable here because the alert system is a single-process monitoring script, not a distributed system.
+
+The Slack sender uses `urllib.request` from the Python standard library rather than the `requests` package. `requests` is already present in `requirements.txt` via FastAPI's test client, so there is no dependency cost either way — but using `urllib` keeps `run_alert.py` runnable in minimal environments where only the standard library is available: a stripped Docker image, a restricted CI runner, or a server where `pip install` is unavailable. The trade-off is slightly more verbose code — `urllib.request.urlopen` requires manual JSON encoding and explicit header construction where `requests.post` would handle both. That verbosity is paid once at write time; the portability benefit applies to every environment the script ever runs in.
+
+---
+
+## 13. Dependencies
+
+| Package | Version | Purpose |
 |---|---|---|
-| `test` | Every push and PR | Runs `pytest tests/ -v` (20 tests) |
-| `run_report` | Daily cron 08:00 UTC | Downloads dataset, runs email report + Slack alert |
-| `deploy` | Push to main | Zips app and deploys to Azure App Service via Kudu zipdeploy |
-
-Required GitHub secrets: `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`, `EMAIL_FROM`, `SLACK_WEBHOOK_URL`, `AZURE_CREDENTIALS`, `AZURE_APP_NAME`.
-
----
-
-## 13. Tech stack
-
-| Layer | Technology |
-|---|---|
-| Language | Python 3.11 |
-| Data processing | pandas |
-| Charts | Matplotlib |
-| API | FastAPI + Uvicorn |
-| Email | smtplib (STARTTLS, port 587) |
-| Slack | Block Kit via webhook (stdlib urllib only) |
-| Config | PyYAML |
-| Tests | pytest (22 tests) |
-| Scheduling | GitHub Actions cron |
-| Deployment | Docker, Azure App Service |
-| Dataset | LogHub Hadoop (Zenodo CC BY 4.0) |
-
----
-
-## 14. Tests
-
-```bash
-pytest tests/ -v
-```
-
-20 tests across three files:
-
-- **test_report.py** — config loading, DataFrame conversion, severity counts, spike detection, email building
-- **test_api.py** — all FastAPI endpoints, plot serving, path traversal blocking
-- **test_alert.py** — Block Kit payload structure, colour coding per severity, transition text, deduplication (fires on change, silent on repeat), dry-run output
-
-No network calls in tests — `send_alert` is monkeypatched. No dependency on `sample_data/`.
+| pandas | >=2.0 | DataFrame aggregation — `groupby`, `pivot`, window calculations for log analysis |
+| numpy | >=1.24,<2.0 | Numerical backend for pandas; upper-pinned for matplotlib compatibility |
+| matplotlib | >=3.7 | Four chart types: bar, stacked bar, horizontal bar, error timeline |
+| pyyaml | >=6.0 | Config file loading (`config.yaml`) |
+| fastapi | >=0.110 | REST API and dashboard server |
+| uvicorn | >=0.27 | ASGI server for FastAPI in development |
+| gunicorn | >=21.0 | Production WSGI server — wraps uvicorn workers for Azure App Service |
+| pydantic | >=2.0 | Request and response model validation in FastAPI endpoints |
+| pytest | >=7.0 | Test runner (20 tests across 3 files) |
+| httpx | >=0.27 | Async HTTP client used by pytest's FastAPI test client |
+| python-multipart | >=0.0.9 | Required by FastAPI for form data parsing |
