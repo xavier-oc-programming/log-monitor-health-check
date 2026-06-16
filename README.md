@@ -2,7 +2,7 @@
 
 A Python pipeline that ingests 180,896 real Hadoop cluster log entries, detects error spikes using rate-based statistical thresholding, and delivers results through three channels: a FastAPI dashboard with live charts, a scheduled HTML email report, and a Slack alerting system with state-machine deduplication. The dataset is the [LogHub Hadoop corpus](https://github.com/logpai/loghub) — YARN container logs from WordCount and PageRank batch jobs with deliberately injected failures, published under CC BY 4.0. The non-obvious part is the deduplication layer: a sustained 30-minute incident fires one Slack alert, not six.
 
-[API docs](http://localhost:8000/docs) · [Live dashboard](http://localhost:8000)
+[Live dashboard](https://log-monitor-health-check.azurewebsites.net) · [API docs](https://log-monitor-health-check.azurewebsites.net/docs)
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688)
