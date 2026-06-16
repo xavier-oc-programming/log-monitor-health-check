@@ -104,6 +104,9 @@ def test_dry_run(capsys):
     import os
     import subprocess
     import sys
+    import pytest
+    if not Path('sample_data').exists():
+        pytest.skip('sample_data/ not present')
     os.environ['EMAIL_USERNAME'] = 'test@example.com'
     os.environ['EMAIL_PASSWORD'] = 'testpassword'
     result = subprocess.run(
