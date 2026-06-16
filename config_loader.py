@@ -28,10 +28,11 @@ def load_config(config_path: Path = Path('config.yaml')) -> dict:
     config['smtp']['username'] = os.environ['EMAIL_USERNAME']
     config['smtp']['password'] = os.environ['EMAIL_PASSWORD']
 
-    # EMAIL_TO overrides the recipients list when set — used by GitHub Actions
-    # so the real destination address stays out of the committed config file.
     if os.environ.get('EMAIL_TO'):
         config['email']['to'] = [os.environ['EMAIL_TO']]
+
+    if os.environ.get('EMAIL_FROM'):
+        config['email']['from'] = f"Log Monitor <{os.environ['EMAIL_FROM']}>"
 
     return config
 
