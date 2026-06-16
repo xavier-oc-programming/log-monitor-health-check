@@ -1,12 +1,9 @@
 # Morning health check script.
-# Reads logs, analyses them, and emails an HTML report to the team.
+# Reads Hadoop logs, analyses them, and emails an HTML report to the team.
 #
 # Usage:
-#   python run_report.py                    # generate synthetic logs, analyse, email
-#   python run_report.py --hours 12         # analyse last 12 hours only
-#   python run_report.py --log-file app.log # read a real log file
-#   python run_report.py --dry-run          # print report to console, do not email
-#   python run_report.py --no-generate      # skip log generation, use existing logs
+#   python run_report.py            # analyse, email
+#   python run_report.py --dry-run  # print report to console, do not email
 
 import argparse
 import sys
@@ -16,29 +13,17 @@ from analyser import count_by_severity, detect_spikes, generate_summary, top_err
 from config_loader import load_config, validate_config
 from email_builder import build_html_report, build_subject
 from email_sender import _build_plain_text_fallback, send_report
-from log_generator import LogGenerator
-from log_parser import parse_log_file, to_dataframe
+from hadoop_loader import load_hadoop_logs
+from log_parser import to_dataframe
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Morning log health check — analyses logs and emails an HTML report.'
-    )
-    parser.add_argument(
-        '--hours', type=int, default=None,
-        help='Number of hours to analyse (default: from config.yaml)'
-    )
-    parser.add_argument(
-        '--log-file', type=Path, default=None,
-        help='Path to an existing log file. If not provided, synthetic logs are generated.'
+        description='Log health check — analyses Hadoop logs and emails an HTML report.'
     )
     parser.add_argument(
         '--dry-run', action='store_true',
-        help='Print the report to console instead of sending email. Useful for testing.'
-    )
-    parser.add_argument(
-        '--no-generate', action='store_true',
-        help='Skip log generation and use existing logs/app.log.'
+        help='Print the report to console instead of sending email.'
     )
     parser.add_argument(
         '--config', type=Path, default=Path('config.yaml'),
@@ -54,28 +39,17 @@ if __name__ == '__main__':
     config = load_config(args.config)
     validate_config(config)
 
-    # Step 2: determine log source
-    if args.log_file:
-        log_path = args.log_file
-        if not log_path.exists():
-            print(f"Error: log file not found: {log_path}", file=sys.stderr)
-            sys.exit(1)
-    elif args.no_generate:
-        log_path = Path('logs/app.log')
-        if not log_path.exists():
-            print("Error: logs/app.log not found. Run without --no-generate to create it.", file=sys.stderr)
-            sys.exit(1)
-    else:
-        log_path = LogGenerator(config).generate()
-        print(f"Generated synthetic logs: {log_path}")
+    # Step 2: load real Hadoop logs
+    data_dir = Path('sample_data')
+    if not data_dir.exists():
+        print("Error: sample_data/ not found.", file=sys.stderr)
+        sys.exit(1)
+    entries = load_hadoop_logs(data_dir)
+    print(f"Loaded {len(entries)} entries from Hadoop logs")
 
-    # Step 3: parse log file
-    hours = args.hours or config['analysis']['default_hours']
-    entries = parse_log_file(log_path, hours=hours)
-    print(f"Parsed {len(entries)} entries from the past {hours} hours")
-
-    # Step 4: convert to DataFrame
+    # Step 3: convert to DataFrame
     df = to_dataframe(entries)
+    hours = max(1, int((df['timestamp'].max() - df['timestamp'].min()).total_seconds() / 3600))
 
     # Step 5: run all analyses
     severity  = count_by_severity(df)

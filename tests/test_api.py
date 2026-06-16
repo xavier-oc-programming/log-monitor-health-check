@@ -49,26 +49,22 @@ def test_plot_blocked():
 def test_analyser_directly():
     """Test the analyser without the API layer."""
     import os
-    import tempfile
-    from pathlib import Path
+    from datetime import datetime, timedelta
 
     from analyser import count_by_severity, detect_spikes, top_errors
     from config_loader import load_config
-    from log_generator import LogGenerator
-    from log_parser import parse_log_file, to_dataframe
+    from log_parser import to_dataframe
 
     os.environ.setdefault('EMAIL_USERNAME', 'test@example.com')
     os.environ.setdefault('EMAIL_PASSWORD', 'testpassword')
 
     config = load_config(require_smtp=False)
-    with tempfile.NamedTemporaryFile(suffix='.log', delete=False) as f:
-        tmp_path = Path(f.name)
-
-    gen = LogGenerator(config, output_path=tmp_path)
-    gen.cfg['n_entries'] = 200
-    gen.generate()
-
-    entries = parse_log_file(tmp_path, hours=48)
+    now = datetime(2015, 10, 18, 10, 0, 0)
+    entries = [
+        {'timestamp': now + timedelta(seconds=i), 'level': lvl,
+         'logger': 'Test', 'message': f'{lvl} msg', 'raw': ''}
+        for i, lvl in enumerate(['INFO'] * 50 + ['WARNING'] * 10 + ['ERROR'] * 5)
+    ]
     df = to_dataframe(entries)
 
     assert len(df) > 0

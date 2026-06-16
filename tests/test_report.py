@@ -1,4 +1,24 @@
+from datetime import datetime, timedelta
 from pathlib import Path
+
+
+def _make_entries(n_info=50, n_warn=10, n_error=5, n_critical=1, base_hour=10):
+    """Create minimal log entries without any file I/O or generator."""
+    now = datetime(2015, 10, 18, base_hour, 0, 0)
+    entries = []
+    for i, (count, level) in enumerate([
+        (n_info, 'INFO'), (n_warn, 'WARNING'),
+        (n_error, 'ERROR'), (n_critical, 'CRITICAL'),
+    ]):
+        for j in range(count):
+            entries.append({
+                'timestamp': now + timedelta(seconds=i * 60 + j),
+                'level':     level,
+                'logger':    'TestLogger',
+                'message':   f'{level} message {j}',
+                'raw':       f'{level} message {j}',
+            })
+    return entries
 
 
 def test_config_loads():
@@ -11,22 +31,17 @@ def test_config_loads():
     validate_config(config)
 
 
-def test_log_generation():
-    """LogGenerator produces the expected number of entries."""
-    import os
-    import tempfile
-    os.environ['EMAIL_USERNAME'] = 'test@example.com'
-    os.environ['EMAIL_PASSWORD'] = 'testpassword'
-    from config_loader import load_config
-    from log_generator import LogGenerator
-    config = load_config()
-    with tempfile.NamedTemporaryFile(suffix='.log', delete=False) as f:
-        tmp = Path(f.name)
-    gen = LogGenerator(config, output_path=tmp)
-    gen.cfg['n_entries'] = 200
-    gen.generate()
-    assert tmp.exists()
-    assert tmp.stat().st_size > 0
+def test_hadoop_loader():
+    """Hadoop loader parses real log files when sample_data exists."""
+    import pytest
+    data_dir = Path('sample_data')
+    if not data_dir.exists():
+        pytest.skip('sample_data/ not present')
+    from hadoop_loader import load_hadoop_logs
+    entries = load_hadoop_logs(data_dir)
+    assert len(entries) > 0
+    assert all(k in entries[0] for k in ('timestamp', 'level', 'logger', 'message'))
+    assert entries[0]['level'] in ('INFO', 'WARNING', 'ERROR', 'CRITICAL')
 
 
 def test_parser():
@@ -46,19 +61,13 @@ def test_parser():
 def test_analyser():
     """Analyser returns correct severity counts and spike detection."""
     import os
-    import tempfile
     os.environ['EMAIL_USERNAME'] = 'test@example.com'
     os.environ['EMAIL_PASSWORD'] = 'testpassword'
-    from analyser import count_by_severity, detect_spikes, generate_summary, top_errors
+    from analyser import count_by_severity, detect_spikes, top_errors
     from config_loader import load_config
-    from log_generator import LogGenerator
-    from log_parser import parse_log_file, to_dataframe
+    from log_parser import to_dataframe
     config = load_config()
-    with tempfile.NamedTemporaryFile(suffix='.log', delete=False) as f:
-        tmp = Path(f.name)
-    LogGenerator(config, output_path=tmp).generate()
-    entries = parse_log_file(tmp, hours=48)
-    df = to_dataframe(entries)
+    df = to_dataframe(_make_entries())
     severity = count_by_severity(df)
     assert severity['total'] > 0
     assert 0 <= severity['error_rate'] <= 1
@@ -71,19 +80,14 @@ def test_analyser():
 def test_email_builder():
     """HTML report builds without error and contains key content."""
     import os
-    import tempfile
     os.environ['EMAIL_USERNAME'] = 'test@example.com'
     os.environ['EMAIL_PASSWORD'] = 'testpassword'
     from analyser import count_by_severity, detect_spikes, generate_summary, top_errors
     from config_loader import load_config
     from email_builder import build_html_report, build_subject
-    from log_generator import LogGenerator
-    from log_parser import parse_log_file, to_dataframe
+    from log_parser import to_dataframe
     config = load_config()
-    with tempfile.NamedTemporaryFile(suffix='.log', delete=False) as f:
-        tmp = Path(f.name)
-    LogGenerator(config, output_path=tmp).generate()
-    df = to_dataframe(parse_log_file(tmp, hours=48))
+    df = to_dataframe(_make_entries())
     severity = count_by_severity(df)
     errors = top_errors(df)
     spikes = detect_spikes(df, config)
@@ -107,5 +111,5 @@ def test_dry_run(capsys):
         capture_output=True, text=True,
         env={**os.environ, 'EMAIL_USERNAME': 'test@example.com', 'EMAIL_PASSWORD': 'testpassword'},
     )
-    assert result.returncode == 0
+    assert result.returncode == 0, result.stderr
     assert 'Status:' in result.stdout

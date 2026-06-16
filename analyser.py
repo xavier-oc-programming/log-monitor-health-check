@@ -151,7 +151,7 @@ def detect_spikes(df: pd.DataFrame, config: dict) -> list[dict]:
             'total_entries': int(row['total_entries']),
             'error_count':   int(row['error_count']),
             'error_rate':    rate,
-            'severity':      'warning' if rate < 0.25 else 'critical',
+            'severity':      'warning' if rate < 0.10 else 'critical',
         })
 
     return result
@@ -211,26 +211,23 @@ def generate_summary(
     """
     error_rate     = severity_counts['error_rate']
     error_rate_pct = round(error_rate * 100, 2)
-    threshold      = 0.25
+    threshold      = 0.05
     spike_count    = len(spikes)
 
     has_critical_spike = any(s['severity'] == 'critical' for s in spikes)
 
-    if has_critical_spike or error_rate >= 0.15:
+    # Status is driven by spike severity, not overall error rate alone —
+    # a single 5-minute window at 10%+ error rate is more actionable than
+    # a multi-day average of 0.3%, which is within normal variance.
+    if has_critical_spike:
         status = 'CRITICAL'
-        status_reason = (
-            f"Critical anomaly spike detected" if has_critical_spike
-            else f"Error rate {error_rate_pct}% exceeds critical threshold"
-        )
-    elif spike_count > 0 or error_rate >= threshold:
+        status_reason = 'Anomaly spike with >10% error rate detected'
+    elif spike_count > 0:
         status = 'WARNING'
-        status_reason = (
-            f"{spike_count} anomaly spike(s) detected" if spike_count > 0
-            else f"Error rate {error_rate_pct}% above threshold"
-        )
+        status_reason = f'{spike_count} anomaly spike(s) detected above {int(threshold*100)}% threshold'
     else:
         status = 'HEALTHY'
-        status_reason = 'Error rate within normal bounds'
+        status_reason = 'No anomaly spikes detected'
 
     time_range = {}
     if not df.empty:
@@ -242,7 +239,7 @@ def generate_summary(
     recommendations = []
     top_error_name = top_errors_list[0]['message_prefix'] if top_errors_list else 'N/A'
 
-    if error_rate >= threshold:
+    if False:  # overall error rate recommendation suppressed — spike recommendations are more actionable
         recommendations.append(
             f"Error rate is {error_rate_pct}% — above the {int(threshold*100)}% threshold. "
             f"Most frequent error: '{top_error_name}'."

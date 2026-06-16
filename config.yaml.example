@@ -15,21 +15,7 @@ email:
   subject_prefix: "Log Health Report"
 
 analysis:
-  default_hours: 24
-  error_rate_threshold: 0.25
+  error_rate_threshold: 0.05
   spike_window_minutes: 5
   min_window_entries: 10
   top_errors_n: 10
-  spike_start_entry: 800
-  spike_end_entry: 900
-  spike_error_prob: 0.40
-
-log_generation:
-  n_entries: 2000
-  seed: 42
-  severity_weights:
-    DEBUG: 0.20
-    INFO: 0.55
-    WARNING: 0.15
-    ERROR: 0.08
-    CRITICAL: 0.02

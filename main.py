@@ -7,8 +7,8 @@ from pydantic import BaseModel
 
 from analyser import count_by_severity, detect_spikes, generate_summary, hourly_breakdown, top_errors
 from config_loader import load_config, validate_config
-from log_generator import LogGenerator
-from log_parser import parse_log_file, to_dataframe
+from hadoop_loader import load_hadoop_logs
+from log_parser import to_dataframe
 from visualise import generate_all_plots
 
 REPORT_CACHE: dict = {}
@@ -68,7 +68,7 @@ def health():
     return HealthResponse(
         status='ok',
         report_loaded=REPORT_LOADED,
-        log_file_exists=Path('logs/app.log').exists(),
+        log_file_exists=Path('sample_data').exists(),
     )
 
 
@@ -107,14 +107,12 @@ def run_analysis():
     config = load_config(require_smtp=False)
     validate_config(config, require_smtp=False)
 
-    Path('logs').mkdir(exist_ok=True)
     Path('reports').mkdir(exist_ok=True)
     Path('plots').mkdir(exist_ok=True)
 
-    log_path  = LogGenerator(config).generate()
-    hours     = config['analysis']['default_hours']
-    entries   = parse_log_file(log_path, hours=hours)
+    entries   = load_hadoop_logs(Path('sample_data'))
     df        = to_dataframe(entries)
+    hours     = max(1, int((df['timestamp'].max() - df['timestamp'].min()).total_seconds() / 3600))
     severity  = count_by_severity(df)
     top_errs  = top_errors(df, n=config['analysis']['top_errors_n'])
     spikes    = detect_spikes(df, config)

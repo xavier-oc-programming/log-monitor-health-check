@@ -1,15 +1,10 @@
-# Orchestration script — generates a fresh log file and runs the full analysis pipeline.
-# python run_analysis.py
-# Outputs: logs/app.log, reports/latest_report.json, plots/*.png
-# The FastAPI app serves the saved report — run this script before starting main.py.
-
 import json
 from pathlib import Path
 
 from analyser import count_by_severity, detect_spikes, generate_summary, hourly_breakdown, top_errors
 from config_loader import load_config, validate_config
-from log_generator import LogGenerator
-from log_parser import parse_log_file, to_dataframe
+from hadoop_loader import load_hadoop_logs
+from log_parser import to_dataframe
 from visualise import generate_all_plots
 
 
@@ -17,18 +12,18 @@ def run() -> dict:
     config = load_config(require_smtp=False)
     validate_config(config, require_smtp=False)
 
-    Path('logs').mkdir(exist_ok=True)
     Path('reports').mkdir(exist_ok=True)
     Path('plots').mkdir(exist_ok=True)
 
-    log_path = LogGenerator(config).generate()
-    print(f"Generated: {log_path}")
-
-    hours = config['analysis']['default_hours']
-    entries = parse_log_file(log_path, hours=hours)
-    print(f"Parsed {len(entries)} entries")
+    entries = load_hadoop_logs(Path('sample_data'))
+    print(f"Loaded {len(entries)} entries from Hadoop logs")
 
     df = to_dataframe(entries)
+
+    if df.empty:
+        raise RuntimeError("No log entries found — check that sample_data/ contains *.log files")
+
+    hours = max(1, int((df['timestamp'].max() - df['timestamp'].min()).total_seconds() / 3600))
 
     severity  = count_by_severity(df)
     top_errs  = top_errors(df, n=config['analysis']['top_errors_n'])
