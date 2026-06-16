@@ -6,6 +6,45 @@ The dataset is the [LogHub Hadoop corpus](https://github.com/logpai/loghub) — 
 
 ---
 
+## How it works
+
+**Step 1 — Reading the logs**
+
+`hadoop_loader.py` opens every log file in `sample_data/` and reads them line by line. Each line looks like:
+
+```
+2015-10-18 21:40:23  ERROR  Server: Could not contact ResourceManager
+```
+
+It pulls out four things from each line: the time, the severity level (INFO / WARNING / ERROR / FATAL), which part of the system wrote it, and the message. It collects all of this into a list — 180,896 lines total.
+
+**Step 2 — Organising into a table**
+
+`log_parser.py` turns that list into a pandas DataFrame. It adds two extra columns:
+
+- **hour** — what hour of the day this happened (0–23), used for the hourly activity chart
+- **minute_window** — the timestamp rounded down to the nearest 5 minutes. So 21:43 and 21:47 both become 21:40. This is how nearby events get grouped together for spike detection.
+
+**Step 3 — Spotting the problem**
+
+`analyser.py` looks at each 5-minute group and asks: out of all the log lines in this window, what percentage were errors?
+
+Normally that's around 0.3%. But at 21:40 it's 11% — 35 times higher than baseline. That's a spike. Any window above 5% is flagged. Above 10% is critical.
+
+**Step 4 — Three ways to tell someone**
+
+Once the spikes are found, the project delivers that information three ways:
+
+- **Email** (`run_report.py`) — builds an HTML email with a table of results and sends it to your inbox via Gmail. Like a morning newspaper for your server.
+- **Dashboard** (`main.py`) — starts a web server. Open a browser at `localhost:8000` and see the charts live. The error timeline shows every 5-minute window as a bar — grey if normal, red if it spiked.
+- **Slack** (`run_alert.py`) — posts a message to a Slack channel, but only when the status actually changes. It writes the current status (HEALTHY / WARNING / CRITICAL) to `state.json` after every check, reads it back next time, and stays silent if nothing changed. A 30-minute incident fires one alert, not six.
+
+**The real data**
+
+The logs come from a real university research cluster that ran Hadoop batch jobs. The researchers deliberately broke the cluster in different ways — turned off machines, filled up disks, cut the network — and saved the logs with labels. The errors in this project are real errors from real failures.
+
+---
+
 ## Dashboard
 
 ![Error Timeline](plots/error_timeline.png)
