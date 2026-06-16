@@ -120,9 +120,11 @@ def run_analysis():
     spikes    = detect_spikes(df, config)
     hourly    = hourly_breakdown(df)
     report    = generate_summary(df, severity, top_errs, spikes, hours=hours)
-    threshold = config['analysis']['error_rate_threshold']
+    threshold   = config['analysis']['error_rate_threshold']
+    min_entries = config['analysis'].get('min_window_entries', 10)
 
-    generate_all_plots(df, severity, hourly, spikes, top_errs, threshold=threshold)
+    generate_all_plots(df, severity, hourly, spikes, top_errs,
+                       threshold=threshold, min_entries=min_entries)
 
     report_dict = report.to_dict()
     Path('reports/latest_report.json').write_text(json.dumps(report_dict, default=str))

@@ -93,11 +93,13 @@ def plot_hourly_activity(hourly_data: list[dict]) -> str:
     return str(out)
 
 
-def plot_error_timeline(df: pd.DataFrame, spikes: list[dict], threshold: float = 0.25) -> str:
+def plot_error_timeline(df: pd.DataFrame, spikes: list[dict], threshold: float = 0.25,
+                        min_entries: int = 10) -> str:
     """
     Bar chart of error rate per 5-minute window over 24 hours.
-    This is the most important chart — it makes the injected spike visible.
-    Spike windows are highlighted with red shading.
+    Only windows with >= min_entries are plotted — sparse windows produce
+    misleading 100% rates from single errors and obscure the real spike.
+    Bars below threshold are grey; bars above are red.
     """
     PLOTS_DIR.mkdir(exist_ok=True)
 
@@ -107,18 +109,33 @@ def plot_error_timeline(df: pd.DataFrame, spikes: list[dict], threshold: float =
     ).reset_index()
     grouped['error_rate'] = grouped['errors'] / grouped['total']
 
+    # Drop sparse windows — they are statistically meaningless at this granularity
+    grouped = grouped[grouped['total'] >= min_entries].reset_index(drop=True)
+
+    if grouped.empty:
+        fig, ax = plt.subplots(figsize=(12, 4), dpi=150)
+        fig.patch.set_facecolor('#1E293B')
+        ax.text(0.5, 0.5, 'Insufficient data', transform=ax.transAxes,
+                ha='center', va='center', color='#64748B', fontsize=12)
+        out = PLOTS_DIR / 'error_timeline.png'
+        plt.savefig(out, dpi=150, facecolor='#1E293B')
+        plt.close()
+        return str(out)
+
     spike_windows = {s['window'] for s in spikes}
+    colours = ['#EF4444' if r >= threshold else '#475569'
+               for r in grouped['error_rate']]
 
     fig, ax = plt.subplots(figsize=(12, 4), dpi=150)
     fig.patch.set_facecolor('#1E293B')
     ax.set_facecolor('#1E293B')
 
     x = range(len(grouped))
-    ax.bar(x, grouped['error_rate'], color='#EF4444', width=0.8, alpha=0.85)
+    ax.bar(x, grouped['error_rate'], color=colours, width=0.8, alpha=0.9)
 
     for i, (_, row) in enumerate(grouped.iterrows()):
         if str(row['minute_window']) in spike_windows:
-            ax.axvspan(i - 0.5, i + 0.5, alpha=0.3, color='#EF4444')
+            ax.axvspan(i - 0.5, i + 0.5, alpha=0.15, color='#EF4444', zorder=0)
 
     ax.axhline(threshold, color='#F59E0B', linestyle='--', linewidth=1.2,
                label=f'Threshold ({threshold:.0%})')
@@ -130,13 +147,19 @@ def plot_error_timeline(df: pd.DataFrame, spikes: list[dict], threshold: float =
     ax.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=7)
 
     ax.set_ylabel('Error rate', color='#94A3B8', fontsize=10)
-    ax.set_title('Error Timeline (5-min windows)', color='#F1F5F9',
+    ax.set_title('Error Timeline — 5-min windows (populated only)', color='#F1F5F9',
                  fontsize=12, fontweight='bold', pad=12)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.0%}'))
     ax.tick_params(colors='#94A3B8')
     for spine in ax.spines.values():
         spine.set_color('#334155')
-    ax.legend(framealpha=0.3, labelcolor='#CBD5E1', facecolor='#1E293B', fontsize=8)
+
+    above = mpatches.Patch(color='#EF4444', label='Above threshold')
+    below = mpatches.Patch(color='#475569', label='Below threshold')
+    thresh_line = plt.Line2D([0], [0], color='#F59E0B', linestyle='--',
+                             linewidth=1.2, label=f'Threshold ({threshold:.0%})')
+    ax.legend(handles=[above, below, thresh_line], framealpha=0.3,
+              labelcolor='#CBD5E1', facecolor='#1E293B', fontsize=8)
 
     plt.tight_layout()
     out = PLOTS_DIR / 'error_timeline.png'
@@ -192,11 +215,12 @@ def generate_all_plots(
     spikes: list[dict],
     top_errors_list: list[dict],
     threshold: float = 0.25,
+    min_entries: int = 10,
 ) -> list[str]:
     """Run all four plot functions. Return list of output paths."""
     return [
         plot_severity_distribution(severity_counts),
         plot_hourly_activity(hourly_data),
-        plot_error_timeline(df, spikes, threshold=threshold),
+        plot_error_timeline(df, spikes, threshold=threshold, min_entries=min_entries),
         plot_top_errors(top_errors_list),
     ]

@@ -36,8 +36,10 @@ def run() -> dict:
     hourly    = hourly_breakdown(df)
     report    = generate_summary(df, severity, top_errs, spikes, hours=hours)
 
-    threshold = config['analysis']['error_rate_threshold']
-    generate_all_plots(df, severity, hourly, spikes, top_errs, threshold=threshold)
+    threshold   = config['analysis']['error_rate_threshold']
+    min_entries = config['analysis'].get('min_window_entries', 10)
+    generate_all_plots(df, severity, hourly, spikes, top_errs,
+                       threshold=threshold, min_entries=min_entries)
     print("Plots generated")
 
     report_path = Path('reports/latest_report.json')
