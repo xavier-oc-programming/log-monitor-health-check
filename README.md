@@ -232,6 +232,12 @@ Interactive docs are available at `/docs` (Swagger UI) and `/redoc` when the ser
 
 ## 9. All run modes
 
+**Set credentials once via `.env`:**
+```bash
+cp .env.example .env   # then fill in your values
+source .env
+```
+
 **Dashboard (FastAPI):**
 ```bash
 uvicorn main:app --reload
@@ -241,17 +247,12 @@ uvicorn main:app --reload
 
 **Email report:**
 ```bash
-export EMAIL_USERNAME=you@gmail.com
-export EMAIL_PASSWORD=your-app-password
-export EMAIL_TO=recipient@example.com
-export EMAIL_FROM="Log Monitor <you@gmail.com>"
 python run_report.py              # send email
 python run_report.py --dry-run    # build HTML without sending
 ```
 
 **Slack alert:**
 ```bash
-export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
 python run_alert.py              # single check
 python run_alert.py --dry-run    # print payload without posting
 python run_alert.py --watch      # daemon, checks every 5 minutes
