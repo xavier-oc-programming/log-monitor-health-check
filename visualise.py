@@ -116,22 +116,9 @@ def plot_error_timeline(df: pd.DataFrame, spikes: list[dict], threshold: float =
     x = range(len(grouped))
     ax.bar(x, grouped['error_rate'], color='#EF4444', width=0.8, alpha=0.85)
 
-    # Find the worst spike (highest error rate) to annotate — the first
-    # spike chronologically is often random noise; the injected anomaly
-    # is the tallest sustained cluster, which is what the annotation should explain.
-    worst_idx, worst_rate = None, 0
     for i, (_, row) in enumerate(grouped.iterrows()):
         if str(row['minute_window']) in spike_windows:
-            ax.axvspan(i - 0.5, i + 0.5, alpha=0.25, color='#EF4444')
-            if row['error_rate'] > worst_rate:
-                worst_rate, worst_idx = row['error_rate'], i
-
-    if worst_idx is not None:
-        offset_x = worst_idx - 8 if worst_idx > len(grouped) // 2 else worst_idx + 3
-        ax.annotate('⚠ Anomaly detected', xy=(worst_idx, worst_rate),
-                    xytext=(offset_x, min(worst_rate + 0.12, 0.95)),
-                    color='#FCA5A5', fontsize=8,
-                    arrowprops=dict(arrowstyle='->', color='#FCA5A5', lw=1))
+            ax.axvspan(i - 0.5, i + 0.5, alpha=0.3, color='#EF4444')
 
     ax.axhline(threshold, color='#F59E0B', linestyle='--', linewidth=1.2,
                label=f'Threshold ({threshold:.0%})')
