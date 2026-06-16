@@ -24,9 +24,9 @@ Python 3.11+. Gmail account with App Password enabled (or any SMTP server). No c
 git clone https://github.com/xavier-oc-programming/log-monitor-health-check
 cd log-monitor-health-check
 pip install -r requirements.txt
-cp config.yaml.example config.yaml   # edit with your SMTP settings
-export EMAIL_USERNAME=your@gmail.com
-export EMAIL_PASSWORD=your_app_password
+cp config.yaml.example config.yaml
+cp .env.example .env                 # fill in your credentials
+source .env                          # load env vars into current shell
 python run_report.py --dry-run       # preview report without sending
 python run_report.py                 # generate logs, analyse, send email
 ```
@@ -37,9 +37,11 @@ python run_report.py                 # generate logs, analyse, send email
 
 ```
 log-monitor-health-check/
-├── config.yaml.example     # committed — safe template, no credentials
-├── config.yaml             # gitignored — contains real settings
-├── config_loader.py        # loads config.yaml, merges SMTP env vars
+├── .env.example            # committed — template for local env vars
+├── .env                    # gitignored — real credentials, never committed
+├── config.yaml.example     # committed — safe config template, no credentials
+├── config.yaml             # gitignored — local config copy
+├── config_loader.py        # loads config.yaml, merges all env vars
 ├── log_generator.py        # LogGenerator class — produces synthetic logs
 ├── log_parser.py           # regex parser, returns structured entries
 ├── analyser.py             # severity counts, spike detection, LogReport
@@ -84,9 +86,18 @@ log-monitor-health-check/
 
 ## 4. Configuration
 
-`config.yaml` controls all runtime behaviour. It is gitignored, so each environment has its own copy. The example file `config.yaml.example` is committed to the repo and is safe to share — it contains no credentials.
+All credentials and personal addresses come from environment variables — nothing sensitive is ever stored in a committed file. `config.yaml` controls runtime behaviour (SMTP host, analysis thresholds, log generation settings) and is gitignored. Copy `config.yaml.example` to `config.yaml` to get started; the defaults work without any edits.
 
-SMTP credentials are never stored in `config.yaml`. The `config_loader.py` module always reads `EMAIL_USERNAME` and `EMAIL_PASSWORD` from the environment and writes them into the config dict at load time. Even if someone fills in `username` and `password` in `config.yaml` and commits it, `config_loader.py` will overwrite those values with the environment variables, and `config.yaml` is gitignored anyway.
+`.env` holds the four environment variables the script needs. Copy `.env.example` to `.env`, fill in your values, and run `source .env` before running the script. `.env` is gitignored and will never be committed. For GitHub Actions, the same four variables are stored as repository secrets.
+
+```
+EMAIL_USERNAME   — Gmail address used to authenticate with SMTP
+EMAIL_PASSWORD   — Gmail App Password (16-character token, not your account password)
+EMAIL_TO         — recipient address for the report
+EMAIL_FROM       — sender address shown in the From field
+```
+
+`config_loader.py` always reads these four from the environment at load time, overwriting any values present in `config.yaml`. This means even if `config.yaml` is accidentally filled in with real addresses, the environment variables take precedence.
 
 ```yaml
 # config.yaml.example
@@ -202,7 +213,7 @@ schtasks /create /tn "LogHealthCheck" /tr "python C:\path\to\run_report.py" /sc 
 
 ## 10. Deployment
 
-This is a script, not a web application — no cloud deployment is required. The production deployment is the GitHub Actions cron schedule. To set it up: fork or clone the repo to your GitHub account, add `EMAIL_USERNAME` and `EMAIL_PASSWORD` as repository secrets under Settings → Secrets and variables → Actions, then push to `main`. The first scheduled run will occur at 08:00 UTC. Monitor the Actions tab to confirm the run completed and the report was sent. The run history is public and timestamped, providing an audit trail of every morning check.
+This is a script, not a web application — no cloud deployment is required. The production deployment is the GitHub Actions cron schedule. To set it up: fork or clone the repo to your GitHub account, add all four secrets (`EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`, `EMAIL_FROM`) under Settings → Secrets and variables → Actions, then push to `main`. The first scheduled run will occur at 08:00 UTC. Monitor the Actions tab to confirm the run completed and the report was sent. The run history is public and timestamped, providing an audit trail of every morning check.
 
 ---
 
@@ -212,10 +223,10 @@ The workflow contains two jobs. The `test` job runs on every push and pull reque
 
 To configure secrets for the scheduled run:
 ```bash
-gh secret set EMAIL_USERNAME --body "your@gmail.com" \
-  --repo xavier-oc-programming/log-monitor-health-check
-gh secret set EMAIL_PASSWORD --body "your_gmail_app_password" \
-  --repo xavier-oc-programming/log-monitor-health-check
+gh secret set EMAIL_USERNAME --body "your@gmail.com" --repo xavier-oc-programming/log-monitor-health-check
+gh secret set EMAIL_PASSWORD --body "your_app_password" --repo xavier-oc-programming/log-monitor-health-check
+gh secret set EMAIL_TO       --body "your@gmail.com"   --repo xavier-oc-programming/log-monitor-health-check
+gh secret set EMAIL_FROM     --body "your@gmail.com"   --repo xavier-oc-programming/log-monitor-health-check
 ```
 The App Password is generated in Google Account → Security → 2-Step Verification → App passwords. Use a dedicated Gmail account for script automation rather than a personal account.
 
