@@ -18,6 +18,8 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Prepare config
+        run: cp config.yaml.example config.yaml
       - name: Run tests
         run: pytest tests/ -v
         env:
