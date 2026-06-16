@@ -133,9 +133,12 @@ def plot_error_timeline(df: pd.DataFrame, spikes: list[dict], threshold: float =
     x = range(len(grouped))
     ax.bar(x, grouped['error_rate'], color=colours, width=0.8, alpha=0.9)
 
+    # Only shade windows that have a bar — axvspan without a bar produces
+    # a faint red ghost that implies a spike where no data is plotted.
+    plotted_windows = set(grouped['minute_window'].astype(str))
     for i, (_, row) in enumerate(grouped.iterrows()):
-        if str(row['minute_window']) in spike_windows:
-            ax.axvspan(i - 0.5, i + 0.5, alpha=0.15, color='#EF4444', zorder=0)
+        if str(row['minute_window']) in spike_windows and str(row['minute_window']) in plotted_windows:
+            ax.axvspan(i - 0.5, i + 0.5, alpha=0.12, color='#EF4444', zorder=0)
 
     ax.axhline(threshold, color='#F59E0B', linestyle='--', linewidth=1.2,
                label=f'Threshold ({threshold:.0%})')
