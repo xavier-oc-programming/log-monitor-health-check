@@ -1,0 +1,16 @@
+title: "Log Monitor — Morning Health Check Script"
+slug: log-monitor-health-check
+primary_category: software
+date: 2026-06-16
+featured: false
+tags: python, automation, email, scheduling, CI-CD
+tech_stack: Python, pandas, smtplib, PyYAML, GitHub Actions, pytest
+repo_url: https://github.com/xavier-oc-programming/log-monitor-health-check
+live_url: https://github.com/xavier-oc-programming/log-monitor-health-check
+demo_url: https://github.com/xavier-oc-programming/log-monitor-health-check
+short_description: "Morning health check script that analyses application logs and emails an HTML report to the team. Scheduled via GitHub Actions cron at 08:00 UTC daily. Part 1 of a four-part log monitoring series."
+full_description: "A scheduled Python script that generates or reads application logs, analyses them for error patterns and anomaly spikes, and emails a colour-coded HTML report to the team. Configured via config.yaml with SMTP credentials read from environment variables. Supports --dry-run for local testing, --log-file for real log input, and --hours for configurable time windows. Scheduled via GitHub Actions cron to run at 08:00 UTC daily — the same pattern used in corporate IT environments where the inbox tells the team whether anything needs attention before they start work. Part 1 of a four-part log monitoring series covering the most common corporate automation patterns."
+problem: "Demonstrating corporate automation skills — scheduled scripting, log analysis, HTML email generation, and the morning health check pattern used by IT teams in banks and large organisations."
+solution: "LogGenerator produces realistic logs with an injected anomaly spike. Regex parser extracts structured fields filtered to the analysis window. pandas aggregates by severity and 5-minute window. email_builder constructs a self-contained HTML email with inline CSS. smtplib with STARTTLS sends the report. GitHub Actions cron schedules the daily run."
+challenges: "Email clients strip external CSS — all styles must be inline, which requires building the HTML programmatically rather than from a template. The --dry-run flag separates the analysis logic from the email sending so the script can be tested in CI without real SMTP credentials."
+results: "Script runs end to end in under 5 seconds on 2,000 log entries. HTML report renders correctly in Gmail, Outlook, and Apple Mail. GitHub Actions cron provides verifiable scheduling with a public run history."
