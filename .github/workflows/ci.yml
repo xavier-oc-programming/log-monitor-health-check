@@ -35,10 +35,16 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Download Hadoop log dataset
+        run: |
+          curl -L -o Hadoop.zip "https://zenodo.org/records/8196385/files/Hadoop.zip?download=1"
+          mkdir -p sample_data
+          unzip -q Hadoop.zip -d sample_data
+          rm Hadoop.zip
       - name: Prepare config
         run: cp config.yaml.example config.yaml
       - name: Run morning health check
-        run: python run_report.py
+        run: python run_report.py --dry-run
         env:
           EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
@@ -57,11 +63,11 @@ jobs:
       - name: Zip and deploy
         run: |
           zip -rq deploy.zip \
-            main.py run_analysis.py run_report.py \
-            log_generator.py log_parser.py analyser.py \
+            main.py run_analysis.py run_report.py preview_email.py \
+            hadoop_loader.py log_parser.py analyser.py \
             visualise.py email_builder.py email_sender.py \
             config_loader.py conftest.py \
-            requirements.txt startup.txt \
+            requirements.txt \
             templates/ plots/ reports/
           TOKEN=$(az account get-access-token --query accessToken -o tsv)
           curl -X POST \

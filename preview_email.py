@@ -8,16 +8,15 @@ from pathlib import Path
 from analyser import count_by_severity, detect_spikes, generate_summary, top_errors
 from config_loader import load_config
 from email_builder import build_html_report, build_subject
-from log_generator import LogGenerator
-from log_parser import parse_log_file, to_dataframe
+from hadoop_loader import load_hadoop_logs
+from log_parser import to_dataframe
 
 if __name__ == '__main__':
     config = load_config(require_smtp=False)
 
-    log_path = LogGenerator(config).generate()
-    hours    = config['analysis']['default_hours']
-    entries  = parse_log_file(log_path, hours=hours)
+    entries  = load_hadoop_logs(Path('sample_data'))
     df       = to_dataframe(entries)
+    hours    = max(1, int((df['timestamp'].max() - df['timestamp'].min()).total_seconds() / 3600))
     severity = count_by_severity(df)
     top_errs = top_errors(df, n=config['analysis']['top_errors_n'])
     spikes   = detect_spikes(df, config)
