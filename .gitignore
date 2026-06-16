@@ -12,3 +12,4 @@ logs/
 deploy.zip
 credentials.json
 sample_data/
+state.json
