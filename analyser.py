@@ -36,6 +36,12 @@ class LogReport:
         self.generated_at    = generated_at
         self.hours_analysed  = hours_analysed
 
+    def to_dict(self) -> dict:
+        # FastAPI cannot serialise a class instance directly —
+        # to_dict() converts to a plain dict that Pydantic can validate
+        # against AnalysisResponse before returning as JSON.
+        return self.__dict__
+
     def __repr__(self) -> str:
         return (
             f"LogReport(status={self.status!r}, "

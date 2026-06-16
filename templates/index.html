@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log Monitor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0F172A; color: #CBD5E1; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; }
+    a { color: #64748B; text-decoration: none; }
+    a:hover { color: #94A3B8; }
+
+    /* Header */
+    .header { background: #1E293B; border-bottom: 1px solid #334155; padding: 20px 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    .header-left h1 { font-size: 20px; font-weight: 700; color: #F1F5F9; }
+    .header-left p { font-size: 12px; color: #64748B; margin-top: 2px; }
+    .btn { background: #22C55E; color: #0F172A; border: none; padding: 9px 20px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: background 0.15s; }
+    .btn:hover { background: #16A34A; }
+    .btn:disabled { background: #334155; color: #64748B; cursor: not-allowed; }
+    .spinner { display: none; width: 14px; height: 14px; border: 2px solid #0F172A; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Status banner */
+    .banner { padding: 14px 32px; font-size: 14px; font-weight: 600; border-left: 4px solid; }
+    .banner-healthy  { background: #052E16; color: #4ADE80; border-color: #22C55E; }
+    .banner-warning  { background: #1C1507; color: #FCD34D; border-color: #F59E0B; }
+    .banner-critical { background: #1C0505; color: #FCA5A5; border-color: #EF4444; }
+    .banner-reason { font-size: 12px; font-weight: 400; color: #94A3B8; margin-top: 3px; }
+
+    /* Main layout */
+    .main { padding: 24px 32px; max-width: 1400px; margin: 0 auto; }
+
+    /* Metric cards */
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+    .card { background: #1E293B; border: 1px solid #334155; border-radius: 8px; padding: 20px; text-align: center; }
+    .card-value { font-size: 28px; font-weight: 700; color: #F1F5F9; }
+    .card-label { font-size: 11px; color: #64748B; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* Two-column layout */
+    .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 1024px) { .columns { grid-template-columns: 1fr; } }
+
+    /* Charts */
+    .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .chart-grid img { width: 100%; border-radius: 8px; border: 1px solid #334155; display: block; }
+
+    /* Panels */
+    .panel { background: #1E293B; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+    .panel h3 { font-size: 13px; font-weight: 600; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 14px; }
+
+    /* Severity table */
+    .severity-table { width: 100%; border-collapse: collapse; }
+    .severity-table th { font-size: 11px; color: #64748B; text-align: left; padding: 6px 10px; border-bottom: 1px solid #334155; }
+    .severity-table td { padding: 8px 10px; border-bottom: 1px solid #1E293B; font-size: 13px; }
+    .severity-table tr:last-child td { border-bottom: none; }
+    .level-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+
+    /* Top errors */
+    .error-list { list-style: none; }
+    .error-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #334155; font-size: 12px; }
+    .error-item:last-child { border-bottom: none; }
+    .error-prefix { color: #CBD5E1; font-family: monospace; flex: 1; margin-right: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .error-count { color: #EF4444; font-weight: 600; white-space: nowrap; }
+
+    /* Spikes */
+    .spike-card { background: #1C0505; border: 1px solid #7F1D1D; border-radius: 6px; padding: 12px; margin-bottom: 8px; }
+    .spike-card.warning { background: #1C1507; border-color: #78350F; }
+    .spike-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+    .spike-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 3px; }
+    .badge-critical { background: #7F1D1D; color: #FCA5A5; }
+    .badge-warning  { background: #78350F; color: #FCD34D; }
+    .spike-window { font-size: 12px; color: #CBD5E1; font-family: monospace; }
+    .spike-detail { font-size: 11px; color: #64748B; }
+    .no-spikes { color: #64748B; font-size: 13px; }
+
+    /* Recommendations */
+    .rec-list { list-style: none; counter-reset: rec; }
+    .rec-item { counter-increment: rec; display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid #334155; font-size: 13px; color: #CBD5E1; }
+    .rec-item:last-child { border-bottom: none; }
+    .rec-item::before { content: counter(rec); background: #F59E0B; color: #0F172A; font-weight: 700; font-size: 11px; min-width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+    .no-recs { color: #22C55E; font-size: 13px; }
+
+    /* Footer */
+    .footer { text-align: center; padding: 24px 32px; font-size: 12px; color: #475569; border-top: 1px solid #1E293B; margin-top: 32px; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 24px; right: 24px; background: #1E293B; border: 1px solid #334155; border-radius: 8px; padding: 12px 18px; font-size: 13px; color: #CBD5E1; display: none; z-index: 100; }
+    .toast.show { display: block; }
+    .toast.error { border-color: #EF4444; color: #FCA5A5; }
+
+    /* Loading overlay */
+    .loading { text-align: center; padding: 40px; color: #64748B; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1>Log Monitor</h1>
+    <p>Application log analysis and anomaly detection</p>
+  </div>
+  <button class="btn" id="analyseBtn" onclick="runAnalysis()">
+    <div class="spinner" id="spinner"></div>
+    <span id="btnText">Re-analyse</span>
+  </button>
+</div>
+
+<div id="statusBanner" class="banner banner-healthy" style="display:none;">
+  <div id="statusText"></div>
+  <div class="banner-reason" id="statusReason"></div>
+</div>
+
+<div class="main">
+  <div class="cards" id="metricCards">
+    <div class="card"><div class="card-value" id="totalEntries">—</div><div class="card-label">Total entries</div></div>
+    <div class="card"><div class="card-value" id="errorRate">—</div><div class="card-label">Error rate</div></div>
+    <div class="card"><div class="card-value" id="spikeCount">—</div><div class="card-label">Anomaly spikes</div></div>
+    <div class="card"><div class="card-value" id="timeRange">—</div><div class="card-label">Time range</div></div>
+  </div>
+
+  <div class="columns">
+    <!-- Charts -->
+    <div>
+      <div class="chart-grid" id="chartGrid">
+        <img id="chartSeverity" src="/plots/error_timeline.png" alt="Error timeline" onerror="this.style.display='none'">
+        <img id="chartHourly" src="/plots/hourly_activity.png" alt="Hourly activity" onerror="this.style.display='none'">
+        <img id="chartTimeline" src="/plots/severity_distribution.png" alt="Severity distribution" onerror="this.style.display='none'">
+        <img id="chartErrors" src="/plots/top_errors.png" alt="Top errors" onerror="this.style.display='none'">
+      </div>
+    </div>
+
+    <!-- Analysis panels -->
+    <div>
+      <div class="panel">
+        <h3>Severity breakdown</h3>
+        <table class="severity-table">
+          <thead><tr><th>Level</th><th>Count</th><th>%</th></tr></thead>
+          <tbody id="severityBody"><tr><td colspan="3" class="loading">Loading…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h3>Top errors</h3>
+        <ul class="error-list" id="errorList"><li class="loading">Loading…</li></ul>
+      </div>
+
+      <div class="panel">
+        <h3>Anomaly spikes</h3>
+        <div id="spikeList"><div class="loading">Loading…</div></div>
+      </div>
+
+      <div class="panel">
+        <h3>Recommendations</h3>
+        <ul class="rec-list" id="recList"><li class="loading">Loading…</li></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer" id="footer">
+  Part 1 of 4 — Log Monitoring Series &middot;
+  <a href="https://github.com/xavier-oc-programming/log-monitor-health-check" target="_blank">GitHub</a>
+  <span id="generatedAt"></span>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const LEVEL_COLOURS = {
+    DEBUG: '#94A3B8', INFO: '#22C55E', WARNING: '#F59E0B', ERROR: '#EF4444', CRITICAL: '#7C3AED'
+  };
+
+  function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (isError ? ' error' : '');
+    setTimeout(() => t.className = 'toast', 3000);
+  }
+
+  function setBanner(status, reason) {
+    const banner = document.getElementById('statusBanner');
+    banner.style.display = 'block';
+    banner.className = 'banner banner-' + status.toLowerCase();
+    const icons = { HEALTHY: '✓', WARNING: '⚠', CRITICAL: '✗' };
+    document.getElementById('statusText').textContent = `${icons[status] || ''} ${status}`;
+    document.getElementById('statusReason').textContent = reason || '';
+  }
+
+  function populateSeverity(counts) {
+    const levels = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'];
+    const total = counts.total || 1;
+    const rows = levels.map(l => {
+      const count = counts[l] || 0;
+      const pct = (count / total * 100).toFixed(1);
+      const colour = LEVEL_COLOURS[l];
+      return `<tr>
+        <td><span class="level-badge" style="background:${colour}22;color:${colour};border:1px solid ${colour}44">${l}</span></td>
+        <td style="color:#F1F5F9;font-weight:600">${count.toLocaleString()}</td>
+        <td style="color:#64748B">${pct}%</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('severityBody').innerHTML = rows;
+  }
+
+  function populateErrors(errors) {
+    if (!errors || !errors.length) {
+      document.getElementById('errorList').innerHTML = '<li style="color:#64748B;font-size:13px">No errors recorded.</li>';
+      return;
+    }
+    const items = errors.map((e, i) =>
+      `<li class="error-item">
+        <span style="color:#64748B;min-width:18px;font-size:11px">${i + 1}</span>
+        <span class="error-prefix">${e.message_prefix}</span>
+        <span class="error-count">${e.count}</span>
+      </li>`
+    ).join('');
+    document.getElementById('errorList').innerHTML = items;
+  }
+
+  function populateSpikes(spikes) {
+    if (!spikes || !spikes.length) {
+      document.getElementById('spikeList').innerHTML = '<p class="no-spikes">No anomalies detected in this period.</p>';
+      return;
+    }
+    const cards = spikes.map(s => {
+      const isCrit = s.severity === 'critical';
+      return `<div class="spike-card ${isCrit ? '' : 'warning'}">
+        <div class="spike-header">
+          <span class="spike-badge ${isCrit ? 'badge-critical' : 'badge-warning'}">${s.severity.toUpperCase()}</span>
+          <span class="spike-window">${s.window}</span>
+        </div>
+        <div class="spike-detail">${s.error_count} errors / ${s.total_entries} total &middot; ${(s.error_rate * 100).toFixed(0)}% error rate</div>
+      </div>`;
+    }).join('');
+    document.getElementById('spikeList').innerHTML = cards;
+  }
+
+  function populateRecs(recs) {
+    if (!recs || !recs.length) {
+      document.getElementById('recList').innerHTML = '<li class="no-recs">No recommendations — system operating normally.</li>';
+      return;
+    }
+    const items = recs.map(r => `<li class="rec-item">${r}</li>`).join('');
+    document.getElementById('recList').innerHTML = items;
+  }
+
+  function refreshCharts() {
+    const t = Date.now();
+    ['chartSeverity', 'chartHourly', 'chartTimeline', 'chartErrors'].forEach(id => {
+      const img = document.getElementById(id);
+      const base = img.src.split('?')[0];
+      img.src = base + '?t=' + t;
+      img.style.display = 'block';
+    });
+  }
+
+  function populate(data) {
+    setBanner(data.status, data.status_reason);
+    document.getElementById('totalEntries').textContent = data.total_entries.toLocaleString();
+    document.getElementById('errorRate').textContent = data.error_rate_pct + '%';
+    document.getElementById('spikeCount').textContent = data.spike_count;
+    const tr = data.time_range;
+    document.getElementById('timeRange').textContent = tr && tr.start ? tr.start.slice(0, 10) : '—';
+    populateSeverity(data.severity_counts);
+    populateErrors(data.top_errors);
+    populateSpikes(data.anomaly_spikes);
+    populateRecs(data.recommendations);
+    if (data.generated_at) {
+      document.getElementById('generatedAt').textContent = ' · Generated ' + data.generated_at;
+    }
+  }
+
+  async function loadReport() {
+    try {
+      const res = await fetch('/api/report');
+      if (res.status === 503) {
+        showToast('No report yet. Click Re-analyse to generate one.');
+        return;
+      }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      populate(await res.json());
+    } catch (e) {
+      showToast('Could not load report: ' + e.message, true);
+    }
+  }
+
+  async function runAnalysis() {
+    const btn = document.getElementById('analyseBtn');
+    const spinner = document.getElementById('spinner');
+    const btnText = document.getElementById('btnText');
+    btn.disabled = true;
+    spinner.style.display = 'block';
+    btnText.textContent = 'Analysing…';
+    try {
+      const res = await fetch('/api/analyse', { method: 'POST' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      populate(await res.json());
+      refreshCharts();
+      showToast('Analysis complete');
+    } catch (e) {
+      showToast('Analysis failed: ' + e.message, true);
+    } finally {
+      btn.disabled = false;
+      spinner.style.display = 'none';
+      btnText.textContent = 'Re-analyse';
+    }
+  }
+
+  loadReport();
+</script>
+</body>
+</html>

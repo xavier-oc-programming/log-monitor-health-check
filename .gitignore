@@ -9,3 +9,5 @@ venv/
 .azure/
 config.yaml
 logs/
+deploy.zip
+credentials.json

@@ -44,3 +44,29 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Zip and deploy
+        run: |
+          zip -rq deploy.zip \
+            main.py run_analysis.py run_report.py \
+            log_generator.py log_parser.py analyser.py \
+            visualise.py email_builder.py email_sender.py \
+            config_loader.py conftest.py \
+            requirements.txt startup.txt \
+            templates/ plots/ reports/
+          TOKEN=$(az account get-access-token --query accessToken -o tsv)
+          curl -X POST \
+            "https://${{ secrets.AZURE_APP_NAME }}.scm.azurewebsites.net/api/zipdeploy" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/zip" \
+            --data-binary @deploy.zip \
+            --silent --show-error

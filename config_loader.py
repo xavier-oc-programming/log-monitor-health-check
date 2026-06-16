@@ -4,7 +4,7 @@ from pathlib import Path
 import yaml
 
 
-def load_config(config_path: Path = Path('config.yaml')) -> dict:
+def load_config(config_path: Path = Path('config.yaml'), require_smtp: bool = True) -> dict:
     """
     Load config.yaml and merge with environment variables.
 
@@ -25,8 +25,12 @@ def load_config(config_path: Path = Path('config.yaml')) -> dict:
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    config['smtp']['username'] = os.environ['EMAIL_USERNAME']
-    config['smtp']['password'] = os.environ['EMAIL_PASSWORD']
+    if require_smtp:
+        config['smtp']['username'] = os.environ['EMAIL_USERNAME']
+        config['smtp']['password'] = os.environ['EMAIL_PASSWORD']
+    else:
+        config['smtp']['username'] = os.environ.get('EMAIL_USERNAME', '')
+        config['smtp']['password'] = os.environ.get('EMAIL_PASSWORD', '')
 
     if os.environ.get('EMAIL_TO'):
         config['email']['to'] = [os.environ['EMAIL_TO']]
@@ -37,7 +41,7 @@ def load_config(config_path: Path = Path('config.yaml')) -> dict:
     return config
 
 
-def validate_config(config: dict) -> None:
+def validate_config(config: dict, require_smtp: bool = True) -> None:
     """
     Validate required config keys are present.
     Raise ValueError with a clear message if anything is missing.
@@ -45,7 +49,8 @@ def validate_config(config: dict) -> None:
               email.to (non-empty list), analysis.error_rate_threshold
     """
     smtp = config.get('smtp', {})
-    for key in ('host', 'port', 'username', 'password'):
+    smtp_keys = ('host', 'port', 'username', 'password') if require_smtp else ('host', 'port')
+    for key in smtp_keys:
         if not smtp.get(key):
             raise ValueError(f"Missing required config: smtp.{key}")
 
