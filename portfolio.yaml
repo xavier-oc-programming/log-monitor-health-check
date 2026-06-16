@@ -1,16 +1,16 @@
-title: "Log Monitor — Morning Health Check Script"
+title: "Log Monitor — Health Check & Anomaly Detection"
 slug: log-monitor-health-check
 primary_category: software
 date: 2026-06-16
 featured: false
-tags: python, automation, email, scheduling, CI-CD
-tech_stack: Python, pandas, smtplib, PyYAML, GitHub Actions, pytest
+tags: python, log-analysis, anomaly-detection, fastapi, slack, email, CI-CD, azure, pandas
+tech_stack: Python, pandas, FastAPI, Matplotlib, smtplib, Slack Block Kit, PyYAML, GitHub Actions, Azure App Service, pytest
 repo_url: https://github.com/xavier-oc-programming/log-monitor-health-check
-live_url: https://github.com/xavier-oc-programming/log-monitor-health-check
-demo_url: https://github.com/xavier-oc-programming/log-monitor-health-check
-short_description: "Morning health check script that analyses application logs and emails an HTML report to the team. Scheduled via GitHub Actions cron at 08:00 UTC daily. Part 1 of a four-part log monitoring series."
-full_description: "A scheduled Python script that generates or reads application logs, analyses them for error patterns and anomaly spikes, and emails a colour-coded HTML report to the team. Configured via config.yaml with SMTP credentials read from environment variables. Supports --dry-run for local testing, --log-file for real log input, and --hours for configurable time windows. Scheduled via GitHub Actions cron to run at 08:00 UTC daily — the same pattern used in corporate IT environments where the inbox tells the team whether anything needs attention before they start work. Part 1 of a four-part log monitoring series covering the most common corporate automation patterns."
-problem: "Demonstrating corporate automation skills — scheduled scripting, log analysis, HTML email generation, and the morning health check pattern used by IT teams in banks and large organisations."
-solution: "LogGenerator produces realistic logs with an injected anomaly spike. Regex parser extracts structured fields filtered to the analysis window. pandas aggregates by severity and 5-minute window. email_builder constructs a self-contained HTML email with inline CSS. smtplib with STARTTLS sends the report. GitHub Actions cron schedules the daily run."
-challenges: "Email clients strip external CSS — all styles must be inline, which requires building the HTML programmatically rather than from a template. The --dry-run flag separates the analysis logic from the email sending so the script can be tested in CI without real SMTP credentials."
-results: "Script runs end to end in under 5 seconds on 2,000 log entries. HTML report renders correctly in Gmail, Outlook, and Apple Mail. GitHub Actions cron provides verifiable scheduling with a public run history."
+live_url: https://log-monitor-health-check.azurewebsites.net
+demo_url: https://log-monitor-health-check.azurewebsites.net
+short_description: "Pipeline that ingests 180,896 real Hadoop cluster logs, detects error spikes using rate-based thresholding, and delivers results via a FastAPI dashboard, scheduled HTML email, and Slack alerts with state-machine deduplication."
+full_description: "A Python pipeline built on the LogHub Hadoop corpus — 180,896 real YARN container log entries from a research cluster with labeled injected failures (machine down, disk full, network disconnection). hadoop_loader.py parses the Hadoop log format and maps Java levels to standard severity names. log_parser.py converts entries to a pandas DataFrame with derived minute_window and is_error columns for spike detection. analyser.py groups by 5-minute window and flags any window where error_count / total_entries exceeds 5% (critical at 10%), with a minimum window size filter to eliminate sparse windows. Two genuine anomalies are detected: a machine-down event at 11% error rate and a disk-full event at 6% — both 20-35x above the 0.3% baseline. Results are delivered three ways: a FastAPI dashboard with four Matplotlib charts, a scheduled HTML email via Gmail STARTTLS, and a Slack Block Kit alert with state-machine deduplication that fires only on status transitions. Deployed to Azure App Service via GitHub Actions zipdeploy."
+problem: "Demonstrating production log monitoring skills relevant to a DevOps or data engineering role — real data ingestion, statistical anomaly detection, multi-channel alerting, and alert deduplication to prevent fatigue during sustained incidents."
+solution: "Rate-based spike detection (error_count / total_entries per 5-minute window) makes detection scale-invariant across varying log volumes. State machine via state.json fires Slack alerts only on HEALTHY/WARNING/CRITICAL transitions, not on every check. Three independent delivery paths (dashboard, email, Slack) share the same analysis pipeline. All credentials come from environment variables; config.yaml is gitignored."
+challenges: "Real Hadoop data has a 0.3% baseline error rate — calibrating thresholds required inspecting the actual worst windows (11% and 6%) rather than guessing. Sparse windows near dataset boundaries produce artificially high error rates from too few entries, requiring the min_window_entries filter. Alert deduplication needed to survive process restarts, ruling out in-memory state in favour of a persistent JSON file."
+results: "Two genuine anomalies detected matching the LogHub labeled failure scenarios. 20 tests passing in CI with no dependency on the sample dataset. Daily cron downloads the Hadoop corpus, runs analysis, emails report, and posts Slack alert. Deployed and live on Azure App Service."
