@@ -121,7 +121,8 @@ def detect_spikes(df: pd.DataFrame, config: dict) -> list[dict]:
     if df.empty:
         return []
 
-    threshold = config['analysis']['error_rate_threshold']
+    threshold   = config['analysis']['error_rate_threshold']
+    min_entries = config['analysis'].get('min_window_entries', 5)
 
     grouped = df.groupby('minute_window').agg(
         total_entries=('is_error', 'count'),
@@ -129,7 +130,12 @@ def detect_spikes(df: pd.DataFrame, config: dict) -> list[dict]:
     ).reset_index()
 
     grouped['error_rate'] = grouped['error_count'] / grouped['total_entries']
-    spikes = grouped[grouped['error_rate'] > threshold].copy()
+    # Require a minimum number of entries per window — single-entry windows
+    # with one error produce 100% error rate but carry no statistical weight.
+    spikes = grouped[
+        (grouped['error_rate'] > threshold) &
+        (grouped['total_entries'] >= min_entries)
+    ].copy()
 
     result = []
     for _, row in spikes.iterrows():
@@ -197,10 +203,10 @@ def generate_summary(
 
     Returns a LogReport instance.
     """
-    error_rate   = severity_counts['error_rate']
+    error_rate     = severity_counts['error_rate']
     error_rate_pct = round(error_rate * 100, 2)
-    threshold    = 0.10
-    spike_count  = len(spikes)
+    threshold      = 0.25
+    spike_count    = len(spikes)
 
     has_critical_spike = any(s['severity'] == 'critical' for s in spikes)
 
@@ -236,7 +242,8 @@ def generate_summary(
             f"Most frequent error: '{top_error_name}'."
         )
 
-    for spike in spikes:
+    top_spikes = sorted(spikes, key=lambda s: s['error_rate'], reverse=True)[:5]
+    for spike in top_spikes:
         recommendations.append(
             f"Anomaly spike at {spike['window']}: {spike['error_count']} errors in 5 minutes "
             f"({spike['error_rate']:.0%} error rate). Investigate what changed at this time."

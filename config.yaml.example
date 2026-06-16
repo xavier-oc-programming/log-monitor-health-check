@@ -16,8 +16,9 @@ email:
 
 analysis:
   default_hours: 24
-  error_rate_threshold: 0.10
+  error_rate_threshold: 0.25
   spike_window_minutes: 5
+  min_window_entries: 10
   top_errors_n: 10
   spike_start_entry: 800
   spike_end_entry: 900
