@@ -93,7 +93,7 @@ def plot_hourly_activity(hourly_data: list[dict]) -> str:
     return str(out)
 
 
-def plot_error_timeline(df: pd.DataFrame, spikes: list[dict], threshold: float = 0.25,
+def plot_error_timeline(df: pd.DataFrame, threshold: float = 0.25,
                         min_entries: int = 10) -> str:
     """
     Bar chart of error rate per 5-minute window over 24 hours.
@@ -122,7 +122,6 @@ def plot_error_timeline(df: pd.DataFrame, spikes: list[dict], threshold: float =
         plt.close()
         return str(out)
 
-    spike_windows = {s['window'] for s in spikes}
     colours = ['#EF4444' if r >= threshold else '#475569'
                for r in grouped['error_rate']]
 
@@ -132,13 +131,6 @@ def plot_error_timeline(df: pd.DataFrame, spikes: list[dict], threshold: float =
 
     x = range(len(grouped))
     ax.bar(x, grouped['error_rate'], color=colours, width=0.8, alpha=0.9)
-
-    # Only shade windows that have a bar — axvspan without a bar produces
-    # a faint red ghost that implies a spike where no data is plotted.
-    plotted_windows = set(grouped['minute_window'].astype(str))
-    for i, (_, row) in enumerate(grouped.iterrows()):
-        if str(row['minute_window']) in spike_windows and str(row['minute_window']) in plotted_windows:
-            ax.axvspan(i - 0.5, i + 0.5, alpha=0.12, color='#EF4444', zorder=0)
 
     ax.axhline(threshold, color='#F59E0B', linestyle='--', linewidth=1.2,
                label=f'Threshold ({threshold:.0%})')
@@ -224,6 +216,6 @@ def generate_all_plots(
     return [
         plot_severity_distribution(severity_counts),
         plot_hourly_activity(hourly_data),
-        plot_error_timeline(df, spikes, threshold=threshold, min_entries=min_entries),
+        plot_error_timeline(df, threshold=threshold, min_entries=min_entries),
         plot_top_errors(top_errors_list),
     ]
