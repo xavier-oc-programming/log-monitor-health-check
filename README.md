@@ -1,6 +1,6 @@
 # Log Monitor — Health Check & Anomaly Detection
 
-A Python pipeline that ingests real Hadoop cluster logs, detects error spikes using statistical thresholding, and delivers results through two channels: a FastAPI dashboard with live charts, and a scheduled HTML email report.
+A Python pipeline that ingests real Hadoop cluster logs, detects error spikes using statistical thresholding, and delivers results through three channels: a FastAPI dashboard with live charts, a scheduled HTML email report, and a Slack alert system with deduplication.
 
 The dataset is the [LogHub Hadoop corpus](https://github.com/logpai/loghub) — 180,896 real log entries from a YARN cluster running WordCount and PageRank jobs, with labeled failure scenarios including machine down, network disconnection, and disk full events.
 
@@ -63,19 +63,56 @@ log_parser.py          <- to_dataframe(): adds hour, minute_window, is_error col
 analyser.py            <- count_by_severity(), detect_spikes(), generate_summary()
 visualise.py           <- Four Matplotlib charts -> plots/*.png
 email_builder.py       <- Self-contained HTML email with inline CSS
+slack_sender.py        <- Slack Block Kit card builder + webhook POST
 
 run_analysis.py        <- CLI: load -> parse -> analyse -> plot -> save JSON report
 run_report.py          <- CLI: load -> analyse -> email (scheduled via GitHub Actions)
+run_alert.py           <- CLI: load -> analyse -> Slack alert with deduplication
 main.py                <- FastAPI app: serves dashboard + JSON API + plots
 ```
 
-Two delivery paths from the same pipeline:
+Three delivery paths from the same pipeline:
 
 ```
-hadoop_loader -> to_dataframe -> analyser -> visualise
-                                     |               |
-                              run_report.py    run_analysis.py
-                              (email report)   (dashboard data)
+hadoop_loader -> to_dataframe -> analyser -> detect_spikes
+                                                   |
+               ┌───────────────────────────────────┼────────────────────────┐
+               |                                   |                        |
+         run_report.py                      run_analysis.py           run_alert.py
+         (HTML email)                       (dashboard data)          (Slack + dedup)
+```
+
+---
+
+## Slack alert deduplication
+
+Without deduplication, a sustained failure at 21:40 would fire an alert every 5 minutes for as long as the incident lasted. The team would start ignoring the channel.
+
+`state.json` solves this. After every check the script writes the current status to disk. Before firing it reads the previous status and compares. An alert fires **only when the status changes**:
+
+```
+HEALTHY  -> WARNING   fires  "Error rate elevated"
+WARNING  -> CRITICAL  fires  "Escalating"
+CRITICAL -> HEALTHY   fires  "System recovered"
+WARNING  -> WARNING   silent
+CRITICAL -> CRITICAL  silent
+```
+
+The Slack message is a Block Kit card with a coloured sidebar (green / amber / red), fields showing the worst window, error rate vs threshold, top error, and entry count, followed by a plain-English recommendation.
+
+**Dry run — preview the payload without posting:**
+```bash
+python run_alert.py --dry-run
+```
+
+**Single check (CI / cron mode):**
+```bash
+python run_alert.py
+```
+
+**Daemon mode — runs every 5 minutes until killed:**
+```bash
+python run_alert.py --watch
 ```
 
 ---
@@ -123,8 +160,6 @@ The `min_window_entries = 10` filter eliminates sparse windows — a window with
 | WARN | WARNING |
 | ERROR | ERROR |
 | FATAL | CRITICAL |
-
-The loader extracts the short class name (e.g. `Server` from `org.apache.hadoop.ipc.Server`) as the logger field, drops stack trace continuation lines, and sorts all entries by timestamp before returning.
 
 ---
 
@@ -175,6 +210,11 @@ export EMAIL_PASSWORD=your-app-password
 python run_report.py --dry-run
 ```
 
+**Slack alert (dry run — no webhook needed):**
+```bash
+python run_alert.py --dry-run
+```
+
 **Preview the email HTML in your browser:**
 ```bash
 python preview_email.py
@@ -187,6 +227,9 @@ python preview_email.py
 `config.yaml.example` (copy to `config.yaml` — never commit this file):
 
 ```yaml
+slack:
+  webhook_url: ""   # set via SLACK_WEBHOOK_URL environment variable
+
 analysis:
   error_rate_threshold: 0.05   # windows above this are flagged as spikes
   spike_window_minutes: 5      # aggregation window size in minutes
@@ -194,13 +237,14 @@ analysis:
   top_errors_n: 10             # number of top errors to surface
 ```
 
-All SMTP credentials come from environment variables — never from the config file:
+All credentials come from environment variables — never from the config file:
 
 ```bash
 export EMAIL_USERNAME=your@gmail.com
 export EMAIL_PASSWORD=your-app-password
 export EMAIL_TO=recipient@example.com
 export EMAIL_FROM="Log Monitor <your@gmail.com>"
+export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
 ```
 
 ---
@@ -211,11 +255,11 @@ Three GitHub Actions jobs in `.github/workflows/ci.yml`:
 
 | Job | Trigger | What it does |
 |---|---|---|
-| `test` | Every push and PR | Runs `pytest tests/ -v` (14 tests) |
-| `run_report` | Daily cron 08:00 UTC | Downloads dataset, runs analysis, sends email |
+| `test` | Every push and PR | Runs `pytest tests/ -v` (22 tests) |
+| `run_report` | Daily cron 08:00 UTC | Downloads dataset, runs email report + Slack alert |
 | `deploy` | Push to main | Zips app and deploys to Azure App Service via Kudu zipdeploy |
 
-Required GitHub secrets: `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`, `EMAIL_FROM`, `AZURE_CREDENTIALS`, `AZURE_APP_NAME`.
+Required GitHub secrets: `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`, `EMAIL_FROM`, `SLACK_WEBHOOK_URL`, `AZURE_CREDENTIALS`, `AZURE_APP_NAME`.
 
 ---
 
@@ -228,8 +272,9 @@ Required GitHub secrets: `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`, `EMAIL_
 | Charts | Matplotlib |
 | API | FastAPI + Uvicorn |
 | Email | smtplib (STARTTLS, port 587) |
+| Slack | Block Kit via webhook (stdlib urllib only) |
 | Config | PyYAML |
-| Tests | pytest (14 tests) |
+| Tests | pytest (22 tests) |
 | Scheduling | GitHub Actions cron |
 | Deployment | Docker, Azure App Service |
 | Dataset | LogHub Hadoop (Zenodo CC BY 4.0) |
@@ -242,6 +287,10 @@ Required GitHub secrets: `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_TO`, `EMAIL_
 pytest tests/ -v
 ```
 
-14 tests covering: config loading, Hadoop log parsing, DataFrame conversion, severity counts, spike detection, email building, API endpoints, plot serving, and path traversal blocking.
+22 tests across three files:
 
-`test_hadoop_loader` hits the real `sample_data/` directory and skips gracefully if it is not present. All other tests build entries in memory — no file I/O, no external dependencies.
+- **test_report.py** — config loading, Hadoop log parsing, DataFrame conversion, severity counts, spike detection, email building, dry-run
+- **test_api.py** — all FastAPI endpoints, plot serving, path traversal blocking
+- **test_alert.py** — Block Kit payload structure, colour coding per severity, transition text, deduplication (fires on change, silent on repeat), dry-run output
+
+No network calls in tests — `send_alert` is monkeypatched. `test_hadoop_loader` reads real `sample_data/` and skips gracefully if not present.

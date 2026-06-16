@@ -14,6 +14,9 @@ email:
     - recipient@example.com
   subject_prefix: "Log Health Report"
 
+slack:
+  webhook_url: ""   # set via SLACK_WEBHOOK_URL environment variable
+
 analysis:
   error_rate_threshold: 0.05
   spike_window_minutes: 5
