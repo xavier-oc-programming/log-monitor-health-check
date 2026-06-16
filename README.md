@@ -94,6 +94,7 @@ log-monitor-health-check/
 ├── templates/
 │   └── index.html         ← Jinja2 template for the FastAPI dashboard
 ├── plots/                 ← Generated chart images served by the dashboard
+├── screenshots/           ← Email and Slack alert screenshots for the README
 └── reports/
     └── latest_report.json ← Pre-computed report loaded at startup to avoid cold-start delay
 ```
@@ -187,7 +188,7 @@ The baseline error rate across all 180,896 entries is 0.3%. The machine-down spi
 
 **HTML email report** — the report delivered daily by `run_report.py`. Contains severity breakdown, top error table, anomaly spike summary with severity badges, and plain-English recommendations. Renders correctly in Gmail, Outlook, and Apple Mail.
 
-![Email Report](plots/email_preview.png)
+![Email Report](screenshots/email_preview.png)
 
 ---
 
@@ -210,6 +211,8 @@ python run_alert.py --dry-run    # print the JSON payload without posting
 python run_alert.py              # single check (CI / cron mode)
 python run_alert.py --watch      # daemon mode — runs every 5 minutes until killed
 ```
+
+![Slack Alert](screenshots/slack-screenshot.png)
 
 ---
 
