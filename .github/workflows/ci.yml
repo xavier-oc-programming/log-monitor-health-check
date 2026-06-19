@@ -57,9 +57,10 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
+  # To enable: add AZURE_CREDENTIALS and AZURE_APP_NAME to repo secrets, then change `if: false` to the original condition.
   deploy:
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
